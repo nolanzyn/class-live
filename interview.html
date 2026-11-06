@@ -158,6 +158,14 @@ summary{cursor:pointer;color:var(--muted);font-size:12px;margin-bottom:8px}
 .f textarea{resize:vertical;min-height:54px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
 #mInfo{font-size:12px;color:var(--warn);min-height:1.2em;margin-top:6px;white-space:pre-line}
+.aiDlg .setH{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.aiDlg h3+.setH{margin-top:8px}
+.aiDlg .setP{margin:0 0 10px}
+.setRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-2px 0 6px}
+.setRow button{height:28px;font-size:12px}
+#sOut{font-size:12px;color:var(--muted)}
+#sync a{color:var(--muted)}
+#sync button{margin-left:4px}
 .rowEnd{display:flex;gap:8px;margin-top:8px;align-items:center}
 .primary{background:var(--accent);color:var(--accent-ink)}
 .ghost{background:transparent;color:var(--muted)}
@@ -214,7 +222,7 @@ body.pip #ai{width:100%;max-height:none;height:calc(100vh - 12px)}
     <div class="row" id="aiSlot" style="flex:1 1 300px"></div>
     <button id="chatBtn" title="Side chat with the assistant (/)">Chat</button>
   </div>
-  <div class="sub"><span>Saved to: <code id="file">—</code></span><span id="count"></span><span id="sync"></span><button id="dl" hidden>Download transcript</button><span id="footSlot"></span><span class="spacer"></span><a href="./">Class page</a></div>
+  <div class="sub"><span>Saved to: <code id="file">—</code></span><span id="count"></span><span id="sync"></span><button id="dl" hidden>Download transcript</button><span id="footSlot"></span><span class="spacer"></span><button id="syncBtn" title="Deepgram key, Drive sync and Claude key">Settings</button><a href="./">Class page</a></div>
 </footer>
 
 <dialog id="mat">
@@ -595,7 +603,8 @@ function finish(job, e){
   }
   if (/^NO_QUESTION/.test(t)) t = "";
   if (!t) { var p2 = el.querySelector(".aiP"); p2.hidden = false; p2.textContent = L("Claude 没有给出答案，点「答」再试一次。", "No answer came back. Press Answer to try again."); }
-  var fq = parse(t).Q; if (fq) { answered.push({ q: fq.replace(/\n/g, " "), at: Date.now() }); answered = answered.slice(-8); }
+  var pf = parse(t), fq = pf.Q; if (fq) { answered.push({ q: fq.replace(/\n/g, " "), at: Date.now() }); answered = answered.slice(-8); }
+  if (H.onAnswer && pf.A) { try { H.onAnswer({ q: (fq || job.req.cue || "").replace(/\s+/g, " "), a: pf.A.replace(/\s+/g, " "), k: pf.Z.replace(/\s+/g, " ") }); } catch (x) {} }
   el.querySelector(".aiMeta").textContent = MODELS[job.model].name + " · " + (job.first ? ((job.first - job.t0) / 1000).toFixed(1) + L(" 秒出字，", "s to first word, ") : "") + secs + L(" 秒", "s") + (usd ? " · $" + usd.toFixed(usd < 0.01 ? 4 : 3) : "");
 }
 
@@ -1297,24 +1306,39 @@ function applyVars(){
   });
 }
 
-/* ===================== saving (Google Drive, same backend as class) ===================== */
+/* ===================== live sync to Google Drive (same backend as class) ===================== */
+// Every line goes to a Google Doc in Drive › ClassTranscripts within a couple of seconds, so any Claude chat
+// can read it (Google Drive connector) even if this page freezes. Unsent lines survive a reload; pressing
+// Start again for the same interview keeps writing into the same doc.
+var LINE_RE = /^\[(\d\d:\d\d:\d\d)\]\s(?:([A-Z][\w.'’-]*(?: [A-Z0-9][\w.'’-]*){0,2}):\s)?(.*)$/;
 function hasBackend(){ return !!(cfg.url && cfg.pass); }
-function be(action, data){
-  var body = Object.assign({ action: action, pass: cfg.pass }, data || {});
-  return fetch(cfg.url, { method: "POST", body: JSON.stringify(body), redirect: "follow", cache: "no-store" })
+function be(action, data, c){
+  c = c || cfg;
+  var body = Object.assign({ action: action, pass: c.pass }, data || {});
+  return fetch(c.url, { method: "POST", body: JSON.stringify(body), redirect: "follow", cache: "no-store" })
     .then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(function(j){ if (!j.ok) { var e = new Error(j.error || "failed"); e.data = j; throw e; } return j; });
 }
-var all = [], sess = null, outq = [], pushing = false, pushT = 0;
+var all = [], sess = null, outq = [], pushing = false, pushT = 0, lastOk = 0;
+function persist(){ LS.set("ivSess", sess ? Object.assign({}, sess, { outq: outq, at: Date.now() }) : null); }
+function docUrl(){ return sess && sess.id ? "https://docs.google.com/document/d/" + sess.id + "/edit" : ""; }
 function setSync(){
-  var el = $("sync");
-  if (!hasBackend()) { el.innerHTML = '<span class="warnText">Drive saving isn\'t set up — download the transcript when you finish</span>'; return; }
-  el.innerHTML = outq.length ? '<span class="warnText">' + outq.length + " lines waiting to upload</span>" : (sess && sess.id ? "synced" : "");
+  var el = $("sync"); el.textContent = "";
+  if (!hasBackend()) {
+    var w = document.createElement("span"); w.className = "warnText"; w.textContent = "Drive sync is off — Claude chats can't see this transcript ";
+    var b = document.createElement("button"); b.textContent = "Set up sync"; b.onclick = openSet;
+    el.appendChild(w); el.appendChild(b); return;
+  }
+  if (outq.length) { var s = document.createElement("span"); s.className = "warnText"; s.textContent = outq.length + " lines waiting to upload"; el.appendChild(s); }
+  else if (sess && sess.id) el.appendChild(document.createTextNode("synced to Drive " + (lastOk ? new Date(lastOk).toTimeString().slice(0, 8) : "")));
+  else el.appendChild(document.createTextNode("Drive sync on"));
+  if (sess && sess.id) { var a = document.createElement("a"); a.href = docUrl(); a.target = "_blank"; a.rel = "noopener"; a.textContent = " Open doc"; el.appendChild(a); }
 }
 function queue(raw){
+  raw = String(raw).replace(/\r/g, "");
   all.push(raw); $("count").textContent = all.length + " lines"; $("dl").hidden = false;
   if (!sess) return;
-  sess.seq++; outq.push({ seq: sess.seq, text: raw }); setSync(); soon(1500);
+  sess.seq++; outq.push({ seq: sess.seq, text: raw }); persist(); setSync(); soon(1200);
 }
 function soon(ms){ if (!pushT) pushT = setTimeout(function(){ pushT = 0; push(); }, ms); }
 function push(){
@@ -1322,42 +1346,123 @@ function push(){
   pushing = true;
   var batch = outq.slice(0, 200);
   return be("append", { id: sess.id, seq: batch[0].seq, lines: batch.map(function(x){ return x.text; }) }).then(function(r){
-    outq = outq.filter(function(x){ return x.seq > r.seq; }); pushing = false; setSync();
+    outq = outq.filter(function(x){ return x.seq > r.seq; }); pushing = false; lastOk = Date.now(); persist(); setSync();
     if (outq.length) soon(300);
   }).catch(function(e){
     pushing = false;
-    if (e.data && typeof e.data.seq === "number") { var b0 = e.data.seq; outq.forEach(function(x, i){ x.seq = b0 + 1 + i; }); sess.seq = b0 + outq.length; }
-    setSync(); soon(4000);
+    if (e.data && typeof e.data.seq === "number") { var b0 = e.data.seq; outq.forEach(function(x, i){ x.seq = b0 + 1 + i; }); sess.seq = b0 + outq.length; persist(); soon(300); }
+    else soon(4000);
+    setSync();
   });
 }
+function briefLines(){                                // the doc opens with the brief, so a Claude chat reading it has the background too
+  var p = cur(), b = p.brief, L = ["## Interview prep brief (from Nolan's materials)"];
+  L.push("Firm: " + (co(p) || "?") + " | Position: " + (pos(p) || "?") + (who(p) ? " | Interviewer(s): " + who(p) : "") + (bf(p, "interview_date") ? " | Date: " + bf(p, "interview_date") : ""));
+  if (b) {
+    if (b.summary) L.push("Summary: " + b.summary);
+    [["What they want", b.role_wants], ["My best angles", b.my_angles], ["Questions to ask them", b.questions_to_ask], ["Watch-outs", b.watch_outs]]
+      .forEach(function(x){ if (x[1] && x[1].length) L.push(x[0] + ": " + x[1].join(" / ")); });
+    (b.likely_questions || []).forEach(function(q){ L.push("Likely Q: " + q.q + " → " + q.a); });
+  }
+  allFiles(p).forEach(function(f){ if (f.digest) L.push("Notes on " + (f.type ? f.type.replace(/_/g, " ") + " " : "") + f.name + ": " + f.digest); });
+  L.push("", "## Live transcript (Interviewer = them, Nolan = me; lines in _italics_ starting with 'AI' are what the assistant suggested)", "");
+  return L.map(function(x){ return x.replace(/\s*\n\s*/g, " "); });
+}
 function beginSess(){
-  all = []; outq = []; $("count").textContent = "";
-  if (!hasBackend()) { sess = null; $("file").textContent = "— (this page only; download at the end)"; setSync(); return; }
-  var d = new Date();
-  sess = { id: null, name: null, seq: 0 };
-  $("file").textContent = "(creating…)";
-  be("start", { course: course(), device: "interview page", clock: clock(),
-    stamp: d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" + pad(d.getHours()) + pad(d.getMinutes()),
-    started: d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) })
-    .then(function(r){ sess.id = r.id; sess.name = r.name; $("file").textContent = r.name; push(); })
-    .catch(function(e){ $("file").textContent = "—"; banner("Can't reach Drive saving (" + e.message + "). The transcript stays on this page — download it when you finish."); });
+  all = []; outq = []; $("count").textContent = ""; lastOk = 0;
+  if (!hasBackend()) { sess = null; $("file").textContent = "— (this page only; download at the end)"; setSync(); return Promise.resolve(); }
+  var d = new Date(), saved = LS.get("ivSess", null);
+  var resume = saved && saved.id && !saved.ended && saved.course === course() && Date.now() - (saved.at || 0) < 3 * 3600 * 1000;
+  sess = { id: null, name: null, seq: 0, course: course(), ended: false };
+  if (resume && saved.outq && saved.outq.length) { outq = saved.outq; sess.seq = outq[outq.length - 1].seq; }
+  var pre = outq.length, preSeq = sess.seq;
+  if (!resume) briefLines().forEach(queue);
+  $("file").textContent = resume ? "(reopening…)" : "(creating…)";
+  var req = resume ? { resumeId: saved.id, course: course(), device: "interview page", clock: clock() }
+    : { course: course(), device: "interview page", clock: clock(),
+        stamp: d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" + pad(d.getHours()) + pad(d.getMinutes()),
+        started: d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) };
+  return be("start", req).then(function(r){
+    sess.id = r.id; sess.name = r.name; $("file").textContent = r.name;
+    if (r.resumed) {
+      var base0 = Math.max(r.seq || 0, preSeq);
+      for (var i = pre; i < outq.length; i++) outq[i].seq = base0 + 1 + (i - pre);   // lines heard while reopening go after what's there
+      sess.seq = base0 + (outq.length - pre);
+      return be("latest", { id: r.id, since: 0 }).then(function(x){        // bring back what was already said
+        (x.lines || []).forEach(function(raw){ var m = LINE_RE.exec(raw); if (m && m[2]) { addLine(m[1], m[2], m[3]); AIQ.line(m[1], m[2], m[3], false); } });
+        note("Resumed in the same doc");
+      }).catch(function(){ note("Resumed in the same doc"); });
+    }
+  }).catch(function(e){
+    sess = null; $("file").textContent = "—";
+    banner("Can't reach Drive sync (" + e.message + "). The transcript stays on this page — download it when you finish.", [["Settings", openSet]]);
+  }).then(function(){ persist(); setSync(); push(); });
 }
 function endSess(){
   var s = sess; if (!s) return Promise.resolve();
   var tryEnd = function(n){
     return push().then(function(){
       if (outq.length && n < 3) return new Promise(function(r){ setTimeout(r, 1500); }).then(function(){ return tryEnd(n + 1); });
+      if (!outq.length) { s.ended = true; persist(); }
       if (s.id) return be("stop", { id: s.id, clock: clock(), ended: new Date().toTimeString().slice(0, 5) }).catch(function(){});
     });
   };
   return tryEnd(0);
 }
+(function(){                                          // a reload (or a frozen page you had to close) left lines unsent: send them now
+  var saved = LS.get("ivSess", null);
+  if (saved && saved.id && saved.outq && saved.outq.length && hasBackend()) {
+    sess = saved; outq = saved.outq; push().then(function(){ if (!$("go").classList.contains("rec")) setSync(); });
+  }
+})();
 $("dl").onclick = function(){
   var d = new Date(), name = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" + pad(d.getHours()) + pad(d.getMinutes()) + "_" + course().replace(/[^\w-]+/g, "_") + "_transcript.md";
   var blob = new Blob(["# " + course() + " — interview transcript\n\n" + all.join("\n") + "\n"], { type: "text/markdown" });
   var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
 };
+
+/* ----- one Settings window: Claude (AI) + Deepgram + Drive sync. The sync part is shared with the class page. ----- */
+var SYNC_HTML = '<h4 class="setH">Recording &amp; Drive sync</h4>' +
+  '<p class="setP">Deepgram turns speech into text. With Drive sync on, every line lands in a Google Doc in Drive › ClassTranscripts within a couple of seconds, so any Claude chat can read it — even if this page freezes. Shared with the class page.</p>' +
+  '<div class="aiF"><label for="sKey">Deepgram API key</label><input id="sKey" type="password" autocomplete="off" spellcheck="false"></div>' +
+  '<div class="aiF"><label for="sUrl">Drive sync URL (your Apps Script web app, ends with /exec)</label><input id="sUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></div>' +
+  '<div class="aiF"><label for="sPass">Sync password</label><input id="sPass" type="password" autocomplete="off" spellcheck="false"></div>' +
+  '<div class="setRow"><button id="sTest" type="button">Test recording &amp; sync</button><span id="sOut"></span></div>' +
+  '<h4 class="setH">AI (Claude)</h4>';
+function setupSettings(){
+  var dlg = $("aiDlg"); if (!dlg) return;
+  dlg.querySelector("h3").textContent = "Settings";
+  var box = document.createElement("div"); box.innerHTML = SYNC_HTML;
+  var intro = dlg.querySelector("p");                  // the Claude intro paragraph: sync section goes above it
+  while (box.firstChild) dlg.insertBefore(box.firstChild, intro);
+  new MutationObserver(function(){                     // each time the window opens, show what's saved
+    if (!dlg.open) return;
+    cfg = LS.get("cfg", cfg);
+    $("sKey").value = cfg.key || ""; $("sUrl").value = cfg.url || ""; $("sPass").value = cfg.pass || ""; $("sOut").textContent = "";
+  }).observe(dlg, { attributes: true, attributeFilter: ["open"] });
+  $("aiSave").addEventListener("click", function(){
+    cfg = { key: $("sKey").value.trim(), url: $("sUrl").value.trim(), pass: $("sPass").value.trim() };
+    LS.set("cfg", cfg); banner(""); setSync();
+  });
+  $("sTest").onclick = testSet;
+}
+function openSet(){ AIQ.open(); setTimeout(function(){ var k = $("sKey"); if (k) { k.scrollIntoView({ block: "center" }); if (!k.value) k.focus(); } }, 50); }
+function testSet(){
+  var c = { key: $("sKey").value.trim(), url: $("sUrl").value.trim(), pass: $("sPass").value.trim() }, out = $("sOut"), res = [];
+  out.textContent = "Testing…";
+  var t1 = c.url ? be("ping", {}, c).then(function(r){ res.push("✓ Drive sync (" + r.folder + ")"); }).catch(function(e){ res.push("✗ Drive sync: " + e.message); })
+                 : Promise.resolve(res.push("· no Drive sync"));
+  var t2 = new Promise(function(done){
+    if (!c.key) { res.push("✗ no Deepgram key"); return done(); }
+    var s, tm = setTimeout(function(){ res.push("✗ Deepgram timed out"); try { s.close(); } catch (e) {} done(); }, 8000);
+    try { s = new WebSocket(DG + "?model=nova-3&encoding=linear16&sample_rate=16000", ["token", c.key]); } catch (e) { clearTimeout(tm); res.push("✗ Deepgram: " + e.message); return done(); }
+    s.onopen = function(){ clearTimeout(tm); res.push("✓ Deepgram"); try { s.send(JSON.stringify({ type: "CloseStream" })); s.close(); } catch (e) {} done(); };
+    s.onerror = function(){ clearTimeout(tm); res.push("✗ Deepgram refused the key"); done(); };
+  });
+  Promise.all([t1, t2]).then(function(){ out.textContent = res.join("  "); });
+}
+$("syncBtn").onclick = openSet;
 
 /* ===================== audio: mic (+ the meeting tab's sound) → Deepgram ===================== */
 // Two channels: left = your mic, right = meeting audio. Deepgram transcribes each channel, so who's talking is known, not guessed.
@@ -1410,7 +1515,7 @@ function dgUrl(){
 function start(){
   if ($("status").dataset.s !== "idle") return;
   cfg = LS.get("cfg", cfg);
-  if (!cfg.key) { banner("No Deepgram key yet. Set it once in the class page's ⚙ settings (same browser, shared).", [["Open class page", function(){ location.href = "./"; }]]); return; }
+  if (!cfg.key) { banner("No Deepgram key yet — the speech-to-text key. Add it in Settings (with Drive sync).", [["Open Settings", openSet]]); return; }
   var wantTab = $("src").value === "mix", my = ++sid;
   stopping = false; banner(""); setStatus("connecting");
   var AC = window.AudioContext || window.webkitAudioContext; actx = new AC();
@@ -1639,11 +1744,13 @@ AIQ.init({
   meta: function(){ return {}; },
   extra: materials,
   asker: isAsker,
+  onAnswer: function(x){ if (sess) queue("_[" + clock() + "] AI suggested — Q: " + x.q + " — A: " + x.a + (x.k ? " — Key: " + x.k : "") + "_"); },
   partial: function(){
     var ch = nch === 2 ? 1 : liveCh, b = buf[ch];
     return b && b.parts.length && isAsker(b.label) ? { label: b.label, text: b.parts.join(" ") } : null;
   }
 });
+setupSettings();
 (function(){                                   // answer strip at the very top; its controls go to the bottom bar
   var panel = AIQ.panel();
   $("top").appendChild(panel);
@@ -1652,7 +1759,7 @@ AIQ.init({
 })();
 afterProfile(); setStatus("idle"); setSync(); setChat(LS.get("ivChat", true));
 migrate().then(loadCache).then(afterProfile).catch(function(e){ banner("Couldn't load your saved materials: " + e.message); });
-if (!cfg.key) banner("No Deepgram key yet. Set it once in the class page's ⚙ settings (same browser, shared).", [["Open class page", function(){ location.href = "./"; }]]);
+if (!cfg.key) banner("No Deepgram key yet — the speech-to-text key. Add it in Settings (with Drive sync).", [["Open Settings", openSet]]);
 })();
 </script>
 </body>

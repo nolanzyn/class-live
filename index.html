@@ -2831,7 +2831,8 @@ function finish(job, e){
   }
   if (/^NO_QUESTION/.test(t)) t = "";
   if (!t) { var p2 = el.querySelector(".aiP"); p2.hidden = false; p2.textContent = L("Claude 没有给出答案，点「答」再试一次。", "No answer came back. Press Answer to try again."); }
-  var fq = parse(t).Q; if (fq) { answered.push({ q: fq.replace(/\n/g, " "), at: Date.now() }); answered = answered.slice(-8); }
+  var pf = parse(t), fq = pf.Q; if (fq) { answered.push({ q: fq.replace(/\n/g, " "), at: Date.now() }); answered = answered.slice(-8); }
+  if (H.onAnswer && pf.A) { try { H.onAnswer({ q: (fq || job.req.cue || "").replace(/\s+/g, " "), a: pf.A.replace(/\s+/g, " "), k: pf.Z.replace(/\s+/g, " ") }); } catch (x) {} }
   el.querySelector(".aiMeta").textContent = MODELS[job.model].name + " · " + (job.first ? ((job.first - job.t0) / 1000).toFixed(1) + L(" 秒出字，", "s to first word, ") : "") + secs + L(" 秒", "s") + (usd ? " · $" + usd.toFixed(usd < 0.01 ? 4 : 3) : "");
 }
 
