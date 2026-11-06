@@ -81,6 +81,8 @@ main{flex:1;overflow-y:auto;padding:8px 0 24px;min-width:0}
 .chHint{color:var(--faint);font-size:12px;line-height:1.6;padding:2px}
 .chQuick{display:flex;flex-wrap:wrap;gap:6px;padding:0 10px 6px}
 .chQuick button{height:24px;padding:0 8px;font-size:11px;border-radius:12px;color:var(--muted)}
+body.live .chQuick .prep, body:not(.live) .chQuick .live{display:none}
+.msg.think:empty::before{content:"Thinking it through…";color:var(--faint)}
 #chForm{display:flex;gap:6px;padding:8px 10px 10px;border-top:1px solid var(--line)}
 #chIn{flex:1;resize:none;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);padding:7px 9px;font:13px/1.4 var(--sans);min-height:38px;max-height:140px}
 #chSend{height:38px;background:var(--accent);color:var(--accent-ink)}
@@ -196,11 +198,14 @@ body.pip #ai{width:100%;max-height:none;height:calc(100vh - 12px)}
   </main>
   <aside id="chat" hidden>
     <div class="chHead"><b>Assistant</b><small id="chModel"></small><span class="spacer"></span><button id="chClear" title="Start a new chat">Clear</button><button id="chClose" title="Hide">✕</button></div>
-    <div id="chLog"><div class="chHint" id="chHint">Ask anything while the interview runs. It sees your materials and the live transcript.<br>Press <b>/</b> to jump here, Enter to send.</div></div>
+    <div id="chLog"><div class="chHint" id="chHint">Before and after the interview this uses the deep model (prep plan, mock interview, review); during the interview it switches to the fast one. It sees your materials and the transcript.<br>Press <b>/</b> to jump here, Enter to send.</div></div>
     <div class="chQuick" id="chQuick">
-      <button data-q="Give me a shorter, sharper version of the last answer that I can say right now.">Sharpen last answer</button>
-      <button data-q="Suggest two specific questions I can ask them, based on my research and what they just said.">Questions to ask</button>
-      <button data-q="Recap the last few minutes in three bullets: what they asked, what I said, anything I should fix.">Recap</button>
+      <button class="live" data-q="Give me a shorter, sharper version of the last answer that I can say right now.">Sharpen last answer</button>
+      <button class="live" data-q="Suggest two specific questions I can ask them, based on my research and what they just said.">Questions to ask</button>
+      <button class="live" data-q="Recap the last few minutes in three bullets: what they asked, what I said, anything I should fix.">Recap</button>
+      <button class="prep" data-q="Build my prep for this interview from my materials: the 6 questions I'm most likely to get, each with a tight answer outline using my real experience; a 60-second 'tell me about yourself'; 3 stories to have ready (STAR); 3 sharp questions to ask them; and the weak spots to prepare for.">Prep plan</button>
+      <button class="prep" data-q="Run a mock interview. Ask me one realistic question this interviewer is likely to ask, then stop and wait for my answer. After I answer, give blunt feedback and a better version, then ask the next question.">Mock interview</button>
+      <button class="prep" data-review="1" data-q="Review this interview.">Review interview</button>
     </div>
     <form id="chForm"><textarea id="chIn" rows="1" placeholder="Ask the assistant… (Enter to send)"></textarea><button id="chSend" type="submit">Send</button></form>
   </aside>
@@ -292,6 +297,7 @@ var SYSTEM = [
 ].join("\n");
 var MANUAL = "Nolan pressed the Answer button: answer the most recent question in the transcript, even if it is implicit or was asked a little earlier. If there is no question at all, give the question he is most likely to be cold-called on about what is being discussed right now, and answer that.";
 var DEFAULT_NAMES = "Nolan, Zhu";
+var CHAT_DEEP = "You are Nolan's interview coach on his laptop, before or after a job interview (no time pressure now). Think it through and be specific: use his materials, the brief and the transcript, quote his actual words when giving feedback, and give him exact wording he can use. About his own experience, use only facts from his materials; never invent them. Reply in the language he writes in. Plain text with short headings and bullets is fine.";
 var CHAT_SYSTEM = "You are Nolan's private assistant on his laptop during a live job interview or class. He types to you while it is happening, so be fast and brief: lead with the answer in one or two sentences, then at most three short bullets if needed. Use his materials and the live transcript. When he asks for something to say, give it as natural spoken English he can say as is. About his own experience, use only facts from his materials; never invent them. Reply in the language he writes in. Plain text, no headings.";
 
 var LANG = "zh";
@@ -312,6 +318,15 @@ function now(){ return new Date().toTimeString().slice(0, 8); }
 function today(){ var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
 function key(){ return String(cfg.key || H.key || "").trim(); }
 function model(){ return MODELS[cfg.model] ? cfg.model : ORDER[0]; }
+// 准备 / 复盘用的「深度」模型：默认 Opus 5.5 + extra high effort（思考更多，慢一些，答得更好）
+var EFFORTS = { max: "max", xhigh: "extra high", high: "high", medium: "medium" };
+function deepModel(){ return MODELS[cfg.deepModel] ? cfg.deepModel : "claude-opus-5-5"; }
+function deepEffort(){ return EFFORTS[cfg.deepEffort] ? cfg.deepEffort : "xhigh"; }
+function params(deep){                             // -> { m, extra, max }
+  if (!deep) { var m = model(); return { m: m, extra: MODELS[m].extra, max: null }; }
+  return { m: deepModel(), extra: { output_config: { effort: deepEffort() } }, max: 32000 };   // 不设 thinking = 自适应思考
+}
+function label(deep){ return deep ? MODELS[deepModel()].name + " · " + EFFORTS[deepEffort()] : MODELS[model()].name; }
 function isInterview(c){ return /interview|面试/i.test(c || ""); }
 function curMode(){                              // 面试时「叫到我」= 全部答（问题都是问你的）
   var c = ""; try { c = H.course() || ""; } catch (e) {}
@@ -627,7 +642,7 @@ function flash(msg){ clearTimeout(flashT); E.act.dataset.flash = msg; flashT = s
 function foot(){
   if (!E.foot) return;
   var s = LS.get("aiSpend", {}), m = MODELS[model()];
-  E.foot.textContent = m.name + (s.d === today() && s.n ? L(" · 今天 ", " · today ") + s.n + L(" 次，约 $", " calls, ~$") + s.usd.toFixed(2) : "") + L(" · 快捷键 A = 答", " · press A to answer");
+  E.foot.textContent = (H.layout === "top" ? "Live: " + m.name + " · prep/review: " + label(true) : m.name) + (s.d === today() && s.n ? L(" · 今天 ", " · today ") + s.n + L(" 次，约 $", " calls, ~$") + s.usd.toFixed(2) : "") + L(" · 快捷键 A = 答", " · press A to answer");
 }
 function empty(){
   var has = !!E.cards.querySelector(".aiCard:not([hidden])");
@@ -723,6 +738,8 @@ var CSS = [
   ".aiDlg textarea{resize:vertical;min-height:64px}",
   ".aiDlg .aiChk{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;cursor:pointer}",
   ".aiDlg .aiChk input{width:auto;height:auto;padding:0;border:0;flex:none}",
+  ".aiDlg .aiPair{display:flex;gap:8px}",
+  ".aiDlg .aiPair select{flex:1}",
   ".aiDlg .aiRow{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;flex-wrap:wrap}",
   ".aiDlg .aiPrimary{background:var(--accent);color:var(--accent-ink,#fff)}",
   "#aiTestOut{font-size:13px;min-height:1.4em;white-space:pre-line;margin-bottom:6px}"
@@ -733,7 +750,8 @@ function DLG(){
   '<p>' + L("老师提问时，自动让 Claude 读最近的转写、写好答案。key 只存在这台设备的浏览器里，费用记在你自己的 Claude API 账户上（和 claude.ai 订阅分开）。",
             "Claude reads the live transcript and writes your answers. The key stays in this browser; usage is billed to your own Claude API account (separate from a claude.ai subscription).") + '</p>' +
   '<div class="aiF"><label for="aiKey">' + L("Claude API key（在 platform.claude.com/settings/keys 创建，sk-ant- 开头）", "Claude API key (create one at platform.claude.com/settings/keys; starts with sk-ant-)") + '</label><input id="aiKey" type="password" autocomplete="off" spellcheck="false"></div>' +
-  '<div class="aiF"><label for="aiModel">' + L("模型", "Model") + '</label><select id="aiModel"></select></div>' +
+  '<div class="aiF"><label for="aiModel">' + L("模型", ivp ? "Model during the interview (fast)" : "Model") + '</label><select id="aiModel"></select></div>' +
+  (ivp ? '<div class="aiF"><label for="aiDeep">Model for prep and review (before / after — no time pressure)</label><div class="aiPair"><select id="aiDeep"></select><select id="aiEffort"></select></div></div>' : '') +
   (ivp ? '' : '<p class="aiNote">自动答题在面板顶上切换：<b>关</b> 只转写；<b>叫到我</b> 叫到你的名字才答（面试时每个问题都答）；<b>全部</b> 听到提问就答。手机录、电脑看时，手机保持「关」。</p>') +
   '<div class="aiF"><label for="aiNames">' + L("你的名字（老师点名会怎么叫你，逗号分隔，如 Nolan, Zhu → 「Mr. Zhu」也能认出）", "Your name as people say it (comma-separated)") + '</label><input id="aiNames" autocomplete="off"></div>' +
   '<div class="aiF"' + (ivp ? ' hidden' : '') + '><label for="aiNotes">「<span id="aiNotesCourse"></span>」的资料（可留空：阅读笔记、案例、老师强调的测试）</label><textarea id="aiNotes" rows="5"></textarea></div>' +
@@ -745,6 +763,7 @@ function openDlg(){
   var c = H.course() || L("这门课", "this course");
   $("aiKey").value = cfg.key || ""; $("aiKey").placeholder = H.key ? L("已从 ~/.zshrc 读到（留空就用它）", "Found in ~/.zshrc (leave empty to use it)") : "";
   $("aiModel").value = model();
+  if ($("aiDeep")) { $("aiDeep").value = deepModel(); $("aiEffort").value = deepEffort(); }
   $("aiNames").value = cfg.names == null ? DEFAULT_NAMES : cfg.names; $("aiAbout").value = cfg.about || "";
   $("aiNotesCourse").textContent = c; $("aiNotes").value = notesFor(H.course()); $("aiNotes").disabled = !H.course();
   $("aiTestOut").textContent = "";
@@ -752,7 +771,8 @@ function openDlg(){
 }
 function needKey(){ openDlg(); }
 function saveDlg(){
-  cfg = { key: $("aiKey").value.trim(), model: $("aiModel").value, names: $("aiNames").value.trim(), about: $("aiAbout").value.trim() };
+  cfg = { key: $("aiKey").value.trim(), model: $("aiModel").value, names: $("aiNames").value.trim(), about: $("aiAbout").value.trim(),
+          deepModel: $("aiDeep") ? $("aiDeep").value : cfg.deepModel, deepEffort: $("aiEffort") ? $("aiEffort").value : cfg.deepEffort };
   LS.set("aiCfg", cfg);
   var c = H.course();
   if (c) { var all = LS.get("aiNotes", {}) || {}; var v = $("aiNotes").value.trim(); if (v) all[c] = v; else delete all[c]; LS.set("aiNotes", all); }
@@ -802,6 +822,10 @@ var PUB = {
     wrap.appendChild(p);
     var dl = document.createElement("dialog"); dl.className = "aiDlg"; dl.id = "aiDlg"; dl.innerHTML = DLG(); document.body.appendChild(dl);
     ORDER.forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = L(MODELS[id].label, MODELS[id].en); $("aiModel").appendChild(o); });
+    if ($("aiDeep")) {
+      ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"].forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = MODELS[id].name; $("aiDeep").appendChild(o); });
+      ["xhigh", "max", "high", "medium"].forEach(function(e){ var o = document.createElement("option"); o.value = e; o.textContent = EFFORTS[e] + " effort"; $("aiEffort").appendChild(o); });
+    }
     E = { panel: p, cards: $("aiCards"), empty: $("aiEmpty"), act: $("aiAct"), ask: $("aiAsk"), seg: $("aiSeg"), foot: $("aiFoot"), dlg: dl };
     E.seg.addEventListener("click", function(e){ var b = e.target.closest ? e.target.closest("button[data-m]") : null; if (b) setMode(b.dataset.m); });
     setMode(mode);
@@ -843,13 +867,14 @@ var PUB = {
   },
   panel: function(){ return E.panel; },
   ready: function(){ return !!key(); },
-  modelName: function(){ return MODELS[model()].name; },
+  modelName: function(deep){ return label(deep); },
+  lineCount: function(){ return lines.length; },
   run: function(system, content, onText, opts){           // 通用一次性调用（比如分析面试材料）
     opts = opts || {};
     if (!key()) return Promise.reject(new Error(L("还没有 Claude API key", "No Claude API key yet")));
-    var m = model(), job = { model: m, usage: {} }, out = "";
-    var body = { model: m, max_tokens: opts.max || (m === "claude-opus-5-5" ? 6000 : 3000), stream: true, system: system, messages: [{ role: "user", content: content }] };
-    Object.keys(MODELS[m].extra).forEach(function(k2){ body[k2] = MODELS[m].extra[k2]; });
+    var P = params(opts.deep), m = P.m, job = { model: m, usage: {} }, out = "";
+    var body = { model: m, max_tokens: P.max || opts.max || (m === "claude-opus-5-5" ? 6000 : 3000), stream: true, system: system, messages: [{ role: "user", content: content }] };
+    Object.keys(P.extra).forEach(function(k2){ body[k2] = P.extra[k2]; });
     return fetch(ENDPOINT, { method: "POST", headers: headers(key()), body: JSON.stringify(body), signal: opts.signal, cache: "no-store" })
       .then(function(r){
         if (!r.ok) return r.text().then(function(t){ throw apiErr(r.status, t); });
@@ -862,21 +887,22 @@ var PUB = {
       })
       .then(function(){ cost(job); return out; }, function(e){ cost(job); if (e instanceof TypeError) e.message = L("连不上 Claude（网络问题）。", "Can't reach Claude (network)."); throw e; });
   },
-  chat: function(history, question, onText, signal){       // 侧边对话：材料（缓存）+ 最近的转写 + 问题
+  chat: function(history, question, onText, signal, opts){ // 侧边对话：材料（缓存）+ 最近的转写 + 问题
+    opts = opts || {};
     if (!key()) return Promise.reject(new Error(L("还没有 Claude API key", "No Claude API key yet")));
-    var m = model(), job = { model: m, usage: {} }, out = "";
+    var P = params(opts.deep), m = P.m, job = { model: m, usage: {} }, out = "";
     var ctx = [{ type: "text", text: headText() + "\n\n(Context for this chat. The live transcript comes with each question.)\n" }];
     var extra = []; try { extra = (H.extra && H.extra()) || []; } catch (e) {}
     extra.forEach(function(b){ ctx.push(JSON.parse(JSON.stringify(b))); });
     ctx[ctx.length - 1].cache_control = { type: "ephemeral" };
     var recent = [], w = 0, i;
-    for (i = lines.length - 1; i >= 0 && w < 3000; i--) { recent.unshift(fmt(lines[i])); w += lines[i].w; }
+    for (i = lines.length - 1; i >= 0 && w < (opts.words || 3000); i--) { recent.unshift(fmt(lines[i])); w += lines[i].w; }
     var p = H.partial && H.partial(); if (p && p.text) recent.push("[" + now() + ", still talking] " + (p.label ? p.label + ": " : "") + p.text);
     var msgs = [{ role: "user", content: ctx }, { role: "assistant", content: "Got it." }];
     history.forEach(function(x){ msgs.push({ role: x.role, content: x.text }); });
     msgs.push({ role: "user", content: "Live transcript so far (most recent last):\n" + (recent.join("\n") || "(nothing yet)") + "\n\n---\nTime now: " + now() + "\nNolan types: " + question });
-    var body = { model: m, max_tokens: m === "claude-opus-5-5" ? 4000 : 1500, stream: true, system: CHAT_SYSTEM, messages: msgs };
-    Object.keys(MODELS[m].extra).forEach(function(k2){ body[k2] = MODELS[m].extra[k2]; });
+    var body = { model: m, max_tokens: P.max || (m === "claude-opus-5-5" ? 4000 : 1500), stream: true, system: opts.deep ? CHAT_DEEP : CHAT_SYSTEM, messages: msgs };
+    Object.keys(P.extra).forEach(function(k2){ body[k2] = P.extra[k2]; });
     return fetch(ENDPOINT, { method: "POST", headers: headers(key()), body: JSON.stringify(body), signal: signal, cache: "no-store" })
       .then(function(r){
         if (!r.ok) return r.text().then(function(t){ throw apiErr(r.status, t); });
@@ -1124,8 +1150,9 @@ function analyze(){
   var ctl = new AbortController(); anaCtl = ctl;
   var content = materials(true);
   content.push({ type: "text", text: "File names: " + allFiles(p).map(function(f){ return f.name; }).join(" | ") + "\nWrite the JSON now." });
-  bstate("Claude is reading your materials…", "run");
-  AIQ.run(ANALYZE_SYS, content, function(t){ bstate("Claude is reading your materials… " + t.length + " characters", "run"); }, { signal: ctl.signal, max: 8000 })
+  var who2 = AIQ.modelName(true);
+  bstate(who2 + " is reading your materials (thinking — can take a minute)…", "run");
+  AIQ.run(ANALYZE_SYS, content, function(t){ bstate(who2 + " is writing your brief… " + t.length + " characters", "run"); }, { signal: ctl.signal, deep: true })
     .then(function(t){
       if (anaCtl !== ctl) return;
       var j = parseJSON(t), q = cur();
@@ -1257,6 +1284,8 @@ function setStatus(s){
   var rec = s !== "idle";
   $("go").classList.toggle("rec", rec); $("goText").textContent = rec ? "Stop" : "Start"; $("go").disabled = s === "stopping";
   $("prof").disabled = rec; $("src").disabled = rec;
+  document.body.classList.toggle("live", rec);
+  if ($("chModel")) $("chModel").textContent = AIQ.modelName(!rec);    // during the interview: fast model; before/after: deep model
   renderStatus();
 }
 function renderStatus(){
@@ -1444,6 +1473,7 @@ function setupSettings(){
   $("aiSave").addEventListener("click", function(){
     cfg = { key: $("sKey").value.trim(), url: $("sUrl").value.trim(), pass: $("sPass").value.trim() };
     LS.set("cfg", cfg); banner(""); setSync();
+    $("chModel").textContent = AIQ.modelName(deepNow());
   });
   $("sTest").onclick = testSet;
 }
@@ -1683,24 +1713,49 @@ function chAdd(role, text){
   $("chLog").appendChild(d); $("chLog").scrollTop = $("chLog").scrollHeight;
   return d;
 }
-function chSend(q){
+var REVIEW = "Review this interview now that it's over. Use the whole transcript, the brief and my materials. Give me:\n1. The questions they asked, in order, each with how my answer went (quote me), what was missing, and a better version I could have said.\n2. What they revealed: next steps, timeline, what they care about, anything about the team or role.\n3. My three biggest fixes for the next round.\n4. Two or three specific points for a thank-you note.\nThe lines starting with 'AI suggested' are what the on-screen assistant offered me, not what I said.";
+function deepNow(){ return $("status").dataset.s === "idle"; }
+function chSend(q, opts){
   q = String(q || "").trim(); if (!q) return;
+  opts = opts || {};
   if (!AIQ.ready()) { AIQ.open(); return; }
   if (chCtl) chCtl.abort();
-  chAdd("user", q);
-  var d = chAdd("assistant", ""), ctl = new AbortController(); d.classList.add("run"); chCtl = ctl;
-  AIQ.chat(chHist.slice(-12), q, function(t){ d.textContent = t; $("chLog").scrollTop = $("chLog").scrollHeight; }, ctl.signal)
-    .then(function(t){ chHist.push({ role: "user", text: q }, { role: "assistant", text: t || "(no reply)" }); })
+  var deep = deepNow();
+  chAdd("user", opts.show || q);
+  var d = chAdd("assistant", ""), ctl = new AbortController(); d.classList.add("run"); if (deep) d.classList.add("think"); chCtl = ctl;
+  AIQ.chat(chHist.slice(-12), q, function(t){ d.textContent = t; $("chLog").scrollTop = $("chLog").scrollHeight; }, ctl.signal, { deep: deep, words: opts.words })
+    .then(function(t){
+      chHist.push({ role: "user", text: q }, { role: "assistant", text: t || "(no reply)" });
+      if (opts.done) opts.done(t);
+    })
     .catch(function(e){
       if (e.name === "AbortError") { d.textContent = (d.textContent ? d.textContent + " " : "") + "[stopped]"; return; }
       d.textContent = "⚠ " + e.message; d.classList.add("err");
     })
     .then(function(){ d.classList.remove("run"); if (chCtl === ctl) chCtl = null; });
 }
+function reviewInterview(){
+  setChat(true);
+  var go = function(){
+    if (!AIQ.lineCount()) { chAdd("assistant", "There's no transcript on this page yet. Record an interview first — or, for an older one, ask in any Claude chat: “复盘 <firm> interview”."); return; }
+    chSend(REVIEW, { show: "Review interview", words: 40000, done: function(t){
+      if (!sess || !sess.id || !t) return;                    // keep the review in the same Drive doc
+      ["", "## Post-interview review (" + AIQ.modelName(true) + ")"].concat(t.split(/\n+/)).forEach(function(x){ queue(x.trim() ? x : ""); });
+      push();
+    } });
+  };
+  var saved = LS.get("ivSess", null);
+  if (AIQ.lineCount() || !saved || !saved.id || !hasBackend()) { go(); return; }
+  be("latest", { id: saved.id, since: 0 }).then(function(x){        // page was reloaded: pull the transcript back from Drive
+    if (x.id !== saved.id) return;
+    sess = sess || saved;
+    (x.lines || []).forEach(function(raw){ var m = LINE_RE.exec(raw); if (m && m[2]) AIQ.line(m[1], m[2], m[3], false); });
+  }).catch(function(){}).then(go);
+}
 function setChat(open){
   $("chat").hidden = !open; LS.set("ivChat", open);
   $("chatBtn").setAttribute("aria-pressed", String(open));
-  $("chModel").textContent = AIQ.modelName();
+  $("chModel").textContent = AIQ.modelName(deepNow());
   if (open) setTimeout(function(){ $("chIn").focus(); }, 0);
 }
 $("chatBtn").onclick = function(){ setChat($("chat").hidden); };
@@ -1716,7 +1771,11 @@ $("chIn").addEventListener("keydown", function(e){
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("chForm").requestSubmit(); }
 });
 $("chIn").addEventListener("input", function(){ this.style.height = ""; this.style.height = Math.min(this.scrollHeight, 140) + "px"; });
-$("chQuick").addEventListener("click", function(e){ var b = e.target.closest("button[data-q]"); if (b) { setChat(true); chSend(b.dataset.q); } });
+$("chQuick").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-q]"); if (!b) return;
+  if (b.dataset.review) { reviewInterview(); return; }
+  setChat(true); chSend(b.dataset.q, { show: b.textContent });
+});
 document.addEventListener("keydown", function(e){
   if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
   var t = e.target && e.target.tagName;
