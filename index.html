@@ -2486,11 +2486,11 @@ var QS = new URLSearchParams(location.search);
 var ENDPOINT = QS.get("ai") || "https://api.anthropic.com/v1/messages";   // ?ai= 仅测试用
 // 价格：美元 / 百万 token：[输入, 写缓存, 读缓存, 输出]（platform.claude.com 定价页，2026-11）
 var MODELS = {
-  "claude-sonnet-5-5": { name: "Sonnet 5.5", label: "Sonnet 5.5 · 推荐：快，答得好", p: [2, 2.5, 0.10, 10], max: 700,
+  "claude-sonnet-5-5": { name: "Sonnet 5.5", label: "Sonnet 5.5 · 推荐：快，答得好", en: "Sonnet 5.5 · recommended: fast and strong", p: [2, 2.5, 0.10, 10], max: 700,
                          extra: { thinking: { type: "between_tools" }, output_config: { effort: "medium" } } },
-  "claude-haiku-5-5":  { name: "Haiku 5.5", label: "Haiku 5.5 · 最快、最便宜", p: [0.10, 0.125, 0.01, 0.50], max: 700,
+  "claude-haiku-5-5":  { name: "Haiku 5.5", label: "Haiku 5.5 · 最快、最便宜", en: "Haiku 5.5 · fastest, cheapest", p: [0.10, 0.125, 0.01, 0.50], max: 700,
                          extra: { thinking: { type: "disabled" }, output_config: { effort: "low" } } },
-  "claude-opus-5-5":   { name: "Opus 5.5", label: "Opus 5.5 · 最强，慢几秒", p: [4, 5, 0.20, 20], max: 2500,
+  "claude-opus-5-5":   { name: "Opus 5.5", label: "Opus 5.5 · 最强，慢几秒", en: "Opus 5.5 · strongest, a few seconds slower", p: [4, 5, 0.20, 20], max: 2500,
                          extra: { output_config: { effort: "low" } } }
 };
 var ORDER = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"];
@@ -2515,11 +2515,15 @@ var SYSTEM = [
   "- Never invent case names, holdings, quotes or section numbers. If unsure of a citation, state the principle without one.",
   "- The transcript is automatic: expect misheard words (e.g. \"Wixis\" = WKSI, \"fare use\" = fair use) and wrong or shifting speaker labels (\"Prof\" is whoever talks most; \"Speaker N\" are others). Read through the errors.",
   "- If the setting is a job interview: answer as Nolan in the first person, about 60-110 words (up to 150 for \"tell me about yourself\" or \"walk me through your resume\"). Use his materials: tie the answer to this firm and role using the job description and his research. For a behavioral question, tell a compact STAR story. For \"Do you have any questions for us?\", give two specific questions drawn from his research.",
+  "- In an interview, replace the 中 line with \"K: <3-5 key words or short phrases separated by ' · '>\" - cues Nolan can glance at so he can speak naturally instead of reading.",
   "- About Nolan's own experience, use only facts in his resume and materials. Never invent jobs, deals, clients, numbers or stories. If nothing in his materials fits, answer honestly with what does fit, and say in the 中 line what is missing.",
 ].join("\n");
 var MANUAL = "Nolan pressed the Answer button: answer the most recent question in the transcript, even if it is implicit or was asked a little earlier. If there is no question at all, give the question he is most likely to be cold-called on about what is being discussed right now, and answer that.";
 var DEFAULT_NAMES = "Nolan, Zhu";
+var CHAT_SYSTEM = "You are Nolan's private assistant on his laptop during a live job interview or class. He types to you while it is happening, so be fast and brief: lead with the answer in one or two sentences, then at most three short bullets if needed. Use his materials and the live transcript. When he asks for something to say, give it as natural spoken English he can say as is. About his own experience, use only facts from his materials; never invent them. Reply in the language he writes in. Plain text, no headings.";
 
+var LANG = "zh";
+function L(zh, en){ return LANG === "en" ? en : zh; }
 var LS = {
   get: function(k, d){ try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set: function(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
@@ -2651,8 +2655,7 @@ function slide(){
   if (base > 2000) { lines = lines.slice(base); base = 0; }
 }
 function notesFor(c){ return String((LS.get("aiNotes", {}) || {})[c] || "").trim(); }
-function request(req, m){
-  slide();
+function headText(){
   var meta = {}, course = "";
   try { meta = H.meta() || {}; course = H.course() || ""; } catch (e) {}
   course = course || "(not set)";
@@ -2663,7 +2666,11 @@ function request(req, m){
   var ns = names(); if (ns.length) head.push("Nolan may be called on as: " + ns.join(", "));
   if (cfg.about && String(cfg.about).trim()) head.push("About Nolan:\n" + String(cfg.about).trim());
   var nt = notesFor(course); if (nt) head.push("Nolan's notes for this course:\n" + nt);
-  var content = [{ type: "text", text: head.join("\n") + "\n" }];
+  return head.join("\n");
+}
+function request(req, m){
+  slide();
+  var content = [{ type: "text", text: headText() + "\n" }];
   var extra = []; try { extra = (H.extra && H.extra()) || []; } catch (e) {}
   if (extra.length) {                                    // 面试材料（简历、JD、research、PDF）：整场不变，单独缓存
     extra.forEach(function(b){ content.push(JSON.parse(JSON.stringify(b))); });
@@ -2694,14 +2701,14 @@ function apiErr(status, t){
   var msg = "", typ = "", e = new Error();
   try { var j = JSON.parse(t); msg = (j.error && j.error.message) || ""; typ = (j.error && j.error.type) || ""; } catch (x) { msg = String(t || "").slice(0, 200); }
   e.fatal = false;
-  if (status === 401 || typ === "authentication_error") { e.message = "Claude API key 不对或已失效。"; e.fatal = true; }
-  else if (/credit balance|billing|purchase credits/i.test(msg)) { e.message = "API 账户余额不足：去 Claude Console（platform.claude.com）→ Billing 充值。"; e.fatal = true; }
-  else if (status === 403 || typ === "permission_error") { e.message = "这个 key 没有权限：" + msg; e.fatal = true; }
-  else if (status === 404 || typ === "not_found_error") { e.message = "你的账户用不了这个模型，换一个。（" + msg + "）"; e.fatal = true; }
-  else if (status === 429 || typ === "rate_limit_error") e.message = "请求太多，被限速了，过几秒再试。";
-  else if (status === 529 || typ === "overloaded_error") e.message = "Claude 现在太忙，稍后再试。";
-  else if (status === 400) e.message = "请求被拒：" + msg;
-  else e.message = "Claude 出错（" + (status || typ || "?") + "）：" + msg;
+  if (status === 401 || typ === "authentication_error") { e.message = L("Claude API key 不对或已失效。", "The Claude API key is wrong or expired."); e.fatal = true; }
+  else if (/credit balance|billing|purchase credits/i.test(msg)) { e.message = L("API 账户余额不足：去 Claude Console（platform.claude.com）→ Billing 充值。", "Out of API credit: add credit in the Claude Console (platform.claude.com) → Billing."); e.fatal = true; }
+  else if (status === 403 || typ === "permission_error") { e.message = L("这个 key 没有权限：", "This key lacks permission: ") + msg; e.fatal = true; }
+  else if (status === 404 || typ === "not_found_error") { e.message = L("你的账户用不了这个模型，换一个。（" + msg + "）", "Your account can't use this model; pick another. (" + msg + ")"); e.fatal = true; }
+  else if (status === 429 || typ === "rate_limit_error") e.message = L("请求太多，被限速了，过几秒再试。", "Rate limited. Try again in a few seconds.");
+  else if (status === 529 || typ === "overloaded_error") e.message = L("Claude 现在太忙，稍后再试。", "Claude is overloaded right now. Try again shortly.");
+  else if (status === 400) e.message = L("请求被拒：", "Request rejected: ") + msg;
+  else e.message = L("Claude 出错（", "Claude error (") + (status || typ || "?") + L("）：", "): ") + msg;
   return e;
 }
 function sse(resp, on){
@@ -2755,26 +2762,26 @@ function cost(job){
 }
 
 /* ---------- 卡片 ---------- */
-var TPL = '<div class="aiQ"><span class="aiT"></span><span class="aiBadge"></span><span class="aiQt"></span><button class="aiX" title="关掉" aria-label="关掉">✕</button></div>' +
+var TPL = '<div class="aiQ"><span class="aiT"></span><span class="aiBadge"></span><span class="aiQt"></span><button class="aiX" aria-label="close">✕</button></div>' +
           '<div class="aiA"><span class="aiA1"></span> <span class="aiA2"></span></div><div class="aiP"></div><div class="aiZ"></div><div class="aiMeta"></div>';
 function makeCard(req, m){
   var d = document.createElement("div");
   d.className = "aiCard run" + (req.you ? " you" : "");
   d.innerHTML = TPL;
   d.querySelector(".aiT").textContent = now().slice(0, 5);
-  d.querySelector(".aiBadge").textContent = req.you ? "叫到你了" : req.manual ? "你点的" : "";
-  d.querySelector(".aiQt").textContent = req.manual ? "想一下…" : req.cue;
+  d.querySelector(".aiBadge").textContent = req.you ? L("叫到你了", "Called on you") : req.manual ? L("你点的", "Asked") : "";
+  d.querySelector(".aiQt").textContent = req.manual ? L("想一下…", "Thinking…") : req.cue;
   ["aiA", "aiP", "aiZ"].forEach(function(x){ d.querySelector("." + x).hidden = true; });
-  d.querySelector(".aiMeta").textContent = MODELS[m].name + " · 思考中…";
+  d.querySelector(".aiMeta").textContent = MODELS[m].name + L(" · 思考中…", " · thinking…");
   E.cards.insertBefore(d, E.cards.firstChild);
   var c = { el: d, req: req };
   shown({ card: c, req: req });
   return c;
 }
 function parse(text){
-  var f = { Q: "", A: "", P: "", Z: "" }, cur = null, map = { "Q": "Q", "A": "A", "+": "P", "中": "Z" };
+  var f = { Q: "", A: "", P: "", Z: "" }, cur = null, map = { "Q": "Q", "A": "A", "+": "P", "中": "Z", "K": "Z" };
   text.split("\n").forEach(function(ln){
-    var m = /^\s*(?:\*\*)?(Q|A|\+|中)(?:\*\*)?\s*[:：]\s?(.*)$/.exec(ln);
+    var m = /^\s*(?:\*\*)?(Q|A|K|\+|中)(?:\*\*)?\s*[:：]\s?(.*)$/.exec(ln);
     if (m) { cur = map[m[1]]; f[cur] = f[cur] ? f[cur] + "\n" + m[2] : m[2]; }
     else if (ln.trim()) { if (cur) f[cur] += "\n" + ln; else f.P = f.P ? f.P + "\n" + ln : ln; }
   });
@@ -2789,7 +2796,7 @@ function paint(job){
   el.querySelector(".aiA2").textContent = m && m[2] ? m[2].trim() : "";
   el.querySelector(".aiA").hidden = !a;
   [["aiP", f.P], ["aiZ", f.Z]].forEach(function(x){ var n = el.querySelector("." + x[0]); n.textContent = x[1]; n.hidden = !x[1]; });
-  el.querySelector(".aiMeta").textContent = MODELS[job.model].name + " · 回答中…";
+  el.querySelector(".aiMeta").textContent = MODELS[job.model].name + L(" · 回答中…", " · writing…");
 }
 function shown(job){                            // 新卡片出来：旧的变淡，面板展开，叫到名字时手机震一下
   var cs = E.cards.querySelectorAll(".aiCard");
@@ -2807,39 +2814,39 @@ function finish(job, e){
   var usd = cost(job);
   el.classList.remove("run");
   if (e) {
-    if (e.name === "AbortError" && (job.why === "dismiss" || job.why === "replaced")) { if (!t) { el.remove(); empty(); } else el.querySelector(".aiMeta").textContent = "已停止"; return; }
-    if (e.name === "AbortError") e.message = "Claude 太久没回应（超时）。";
-    else if (e instanceof TypeError) e.message = "连不上 Claude（网络问题）。";
+    if (e.name === "AbortError" && (job.why === "dismiss" || job.why === "replaced")) { if (!t) { el.remove(); empty(); } else el.querySelector(".aiMeta").textContent = L("已停止", "Stopped"); return; }
+    if (e.name === "AbortError") e.message = L("Claude 太久没回应（超时）。", "Claude took too long to respond (timeout).");
+    else if (e instanceof TypeError) e.message = L("连不上 Claude（网络问题）。", "Can't reach Claude (network).");
     if (e.fatal) { blocked = e.message; activity(); }
     el.classList.add("err");
     el.querySelector(".aiA").hidden = true; el.querySelector(".aiZ").hidden = true;
     var pEl = el.querySelector(".aiP"); pEl.hidden = false; pEl.textContent = e.message;
     var meta = el.querySelector(".aiMeta"); meta.textContent = "";
     var b = document.createElement("button"); b.className = "aiLink";
-    if (e.fatal) { b.textContent = "打开 AI 设置"; b.onclick = function(){ openDlg(); }; }
-    else { b.textContent = "重试"; b.onclick = function(){ el.remove(); trigger({ manual: true, you: false, cue: "" }); }; }
+    if (e.fatal) { b.textContent = L("打开 AI 设置", "AI settings"); b.onclick = function(){ openDlg(); }; }
+    else { b.textContent = L("重试", "Retry"); b.onclick = function(){ el.remove(); trigger({ manual: true, you: false, cue: "" }); }; }
     meta.appendChild(b);
     Array.prototype.forEach.call(E.cards.querySelectorAll(".aiCard.err"), function(c){ if (c !== el) c.remove(); });   // 只留最新一张错误卡
     return;
   }
   if (/^NO_QUESTION/.test(t)) t = "";
-  if (!t) { var p2 = el.querySelector(".aiP"); p2.hidden = false; p2.textContent = "Claude 没有给出答案，点「答」再试一次。"; }
+  if (!t) { var p2 = el.querySelector(".aiP"); p2.hidden = false; p2.textContent = L("Claude 没有给出答案，点「答」再试一次。", "No answer came back. Press Answer to try again."); }
   var fq = parse(t).Q; if (fq) { answered.push({ q: fq.replace(/\n/g, " "), at: Date.now() }); answered = answered.slice(-8); }
-  el.querySelector(".aiMeta").textContent = MODELS[job.model].name + " · " + (job.first ? ((job.first - job.t0) / 1000).toFixed(1) + " 秒出字，" : "") + secs + " 秒" + (usd ? " · $" + usd.toFixed(usd < 0.01 ? 4 : 3) : "");
+  el.querySelector(".aiMeta").textContent = MODELS[job.model].name + " · " + (job.first ? ((job.first - job.t0) / 1000).toFixed(1) + L(" 秒出字，", "s to first word, ") : "") + secs + L(" 秒", "s") + (usd ? " · $" + usd.toFixed(usd < 0.01 ? 4 : 3) : "");
 }
 
 /* ---------- 面板 ---------- */
 function activity(){
   if (!E.act) return;
   var s = "", run = false;
-  if (!key()) s = "未设置 key";
-  else if (blocked) s = "已暂停：" + blocked;
-  else if (busy) { run = true; s = "回答中…"; }
-  else if (qTimer) s = "马上看下一个提问";
+  if (!key()) s = L("未设置 key", "No API key");
+  else if (blocked) s = L("已暂停：", "Paused: ") + blocked;
+  else if (busy) { run = true; s = L("回答中…", "Answering…"); }
+  else if (qTimer) s = L("马上看下一个提问", "Next question coming");
   else if (flashT) s = E.act.dataset.flash || "";
   else if (!window.matchMedia("(max-width: 999px)").matches) {
     var cm = curMode();
-    s = cm === "all" ? (mode === "you" ? "面试：每个问题都答" : "听到提问就答") : cm === "you" ? "叫到你的名字才答" : "只转写，要答案点「答」";
+    s = cm === "all" ? (mode === "you" ? L("面试：每个问题都答", "Auto-answering") : L("听到提问就答", "Auto-answering")) : cm === "you" ? L("叫到你的名字才答", "Only when you're called") : L("只转写，要答案点「答」", "Transcribing only; press Answer");
   }
   E.act.textContent = s; E.act.classList.toggle("run", run); E.act.classList.toggle("bad", !!blocked || !key());
 }
@@ -2847,7 +2854,7 @@ function flash(msg){ clearTimeout(flashT); E.act.dataset.flash = msg; flashT = s
 function foot(){
   if (!E.foot) return;
   var s = LS.get("aiSpend", {}), m = MODELS[model()];
-  E.foot.textContent = m.name + (s.d === today() && s.n ? " · 今天 " + s.n + " 次，约 $" + s.usd.toFixed(2) : "") + " · 快捷键 A = 答";
+  E.foot.textContent = m.name + (s.d === today() && s.n ? L(" · 今天 ", " · today ") + s.n + L(" 次，约 $", " calls, ~$") + s.usd.toFixed(2) : "") + L(" · 快捷键 A = 答", " · press A to answer");
 }
 function empty(){
   var has = !!E.cards.querySelector(".aiCard:not([hidden])");
@@ -2855,14 +2862,16 @@ function empty(){
   if (has) return;
   E.empty.textContent = "";
   if (!key()) {
-    E.empty.appendChild(document.createTextNode("填好 Claude API key 后，听到提问这里会自动写好能直接念的口语答案（加粗的第一句先说），下面一行中文要点。"));
-    var b = document.createElement("button"); b.className = "aiLink"; b.textContent = "设置"; b.onclick = function(){ openDlg(); };
+    E.empty.appendChild(document.createTextNode(L("填好 Claude API key 后，听到提问这里会自动写好能直接念的口语答案（加粗的第一句先说），下面一行中文要点。", "Add your Claude API key and answers will show up here as soon as a question is asked.")));
+    var b = document.createElement("button"); b.className = "aiLink"; b.textContent = L("设置", "Settings"); b.onclick = function(){ openDlg(); };
     E.empty.appendChild(b);
   } else {
     var cm = curMode();
-    E.empty.textContent = (cm === "all" ? (mode === "you" ? "面试：每个问题都自动写好第一人称的口语答案。" : "「全部」：听到提问就自动写好口语化的答案。")
-      : cm === "you" ? "「叫到我」：老师叫到你的名字（" + names().join(" / ") + "）才自动回答。"
-      : "「关」：只转写，不调用 AI。") + "任何时候点「答」或按 A，马上回答最近的提问。";
+    E.empty.textContent = LANG === "en"
+      ? (cm === "off" ? "AI is off: transcribing only. " : "Answers show up here as soon as a question is asked. ") + "Press A (or Answer) any time for the latest question."
+      : (cm === "all" ? (mode === "you" ? "面试：每个问题都自动写好第一人称的口语答案。" : "「全部」：听到提问就自动写好口语化的答案。")
+        : cm === "you" ? "「叫到我」：老师叫到你的名字（" + names().join(" / ") + "）才自动回答。"
+        : "「关」：只转写，不调用 AI。") + "任何时候点「答」或按 A，马上回答最近的提问。";
   }
 }
 function setHidden(h){
@@ -2945,19 +2954,23 @@ var CSS = [
   ".aiDlg .aiPrimary{background:var(--accent);color:var(--accent-ink,#fff)}",
   "#aiTestOut{font-size:13px;min-height:1.4em;white-space:pre-line;margin-bottom:6px}"
 ].join("\n");
-var DLG = '<h3>AI 答题设置</h3>' +
-  '<p>老师提问时，自动让 Claude 读最近的转写、写好答案。key 只存在这台设备的浏览器里，费用记在你自己的 Claude API 账户上（和 claude.ai 订阅分开）。</p>' +
-  '<div class="aiF"><label for="aiKey">Claude API key（在 platform.claude.com/settings/keys 创建，sk-ant- 开头）</label><input id="aiKey" type="password" autocomplete="off" spellcheck="false"></div>' +
-  '<div class="aiF"><label for="aiModel">模型</label><select id="aiModel"></select></div>' +
-  '<p class="aiNote">自动答题在面板顶上切换：<b>关</b> 只转写；<b>叫到我</b> 叫到你的名字才答（面试时每个问题都答）；<b>全部</b> 听到提问就答。手机录、电脑看时，手机保持「关」。</p>' +
-  '<div class="aiF"><label for="aiNames">你的名字（老师点名会怎么叫你，逗号分隔，如 Nolan, Zhu → 「Mr. Zhu」也能认出）</label><input id="aiNames" placeholder="如 Nolan" autocomplete="off"></div>' +
-  '<div class="aiF"><label for="aiNotes">「<span id="aiNotesCourse"></span>」的资料（可留空：阅读笔记、案例、老师强调的测试）</label><textarea id="aiNotes" rows="5"></textarea></div>' +
-  '<div class="aiF"><label for="aiAbout">关于你（可留空；面试时用：经历、想突出的点）</label><textarea id="aiAbout" rows="3"></textarea></div>' +
+function DLG(){
+  var ivp = H.layout === "top";                  // 面试页：材料在「Materials」里填，这里只留 key、模型、名字
+  return '<h3>' + L("AI 答题设置", "AI settings") + '</h3>' +
+  '<p>' + L("老师提问时，自动让 Claude 读最近的转写、写好答案。key 只存在这台设备的浏览器里，费用记在你自己的 Claude API 账户上（和 claude.ai 订阅分开）。",
+            "Claude reads the live transcript and writes your answers. The key stays in this browser; usage is billed to your own Claude API account (separate from a claude.ai subscription).") + '</p>' +
+  '<div class="aiF"><label for="aiKey">' + L("Claude API key（在 platform.claude.com/settings/keys 创建，sk-ant- 开头）", "Claude API key (create one at platform.claude.com/settings/keys; starts with sk-ant-)") + '</label><input id="aiKey" type="password" autocomplete="off" spellcheck="false"></div>' +
+  '<div class="aiF"><label for="aiModel">' + L("模型", "Model") + '</label><select id="aiModel"></select></div>' +
+  (ivp ? '' : '<p class="aiNote">自动答题在面板顶上切换：<b>关</b> 只转写；<b>叫到我</b> 叫到你的名字才答（面试时每个问题都答）；<b>全部</b> 听到提问就答。手机录、电脑看时，手机保持「关」。</p>') +
+  '<div class="aiF"><label for="aiNames">' + L("你的名字（老师点名会怎么叫你，逗号分隔，如 Nolan, Zhu → 「Mr. Zhu」也能认出）", "Your name as people say it (comma-separated)") + '</label><input id="aiNames" autocomplete="off"></div>' +
+  '<div class="aiF"' + (ivp ? ' hidden' : '') + '><label for="aiNotes">「<span id="aiNotesCourse"></span>」的资料（可留空：阅读笔记、案例、老师强调的测试）</label><textarea id="aiNotes" rows="5"></textarea></div>' +
+  '<div class="aiF"' + (ivp ? ' hidden' : '') + '><label for="aiAbout">关于你（可留空；面试时用：经历、想突出的点）</label><textarea id="aiAbout" rows="3"></textarea></div>' +
   '<div id="aiTestOut"></div>' +
-  '<div class="aiRow"><button id="aiTest">测试 key</button><button id="aiCancel">取消</button><button class="aiPrimary" id="aiSave">保存</button></div>';
+  '<div class="aiRow"><button id="aiTest">' + L("测试 key", "Test key") + '</button><button id="aiCancel">' + L("取消", "Cancel") + '</button><button class="aiPrimary" id="aiSave">' + L("保存", "Save") + '</button></div>';
+}
 function openDlg(){
-  var c = H.course() || "这门课";
-  $("aiKey").value = cfg.key || ""; $("aiKey").placeholder = H.key ? "已从 ~/.zshrc 读到（留空就用它）" : "";
+  var c = H.course() || L("这门课", "this course");
+  $("aiKey").value = cfg.key || ""; $("aiKey").placeholder = H.key ? L("已从 ~/.zshrc 读到（留空就用它）", "Found in ~/.zshrc (leave empty to use it)") : "";
   $("aiModel").value = model();
   $("aiNames").value = cfg.names == null ? DEFAULT_NAMES : cfg.names; $("aiAbout").value = cfg.about || "";
   $("aiNotesCourse").textContent = c; $("aiNotes").value = notesFor(H.course()); $("aiNotes").disabled = !H.course();
@@ -2977,14 +2990,14 @@ function saveDlg(){
 }
 function testKey(){
   var k = $("aiKey").value.trim() || H.key, m = $("aiModel").value, out = $("aiTestOut"), t0 = Date.now();
-  if (!k) { out.textContent = "先填 key。"; return; }
-  out.textContent = "测试中…";
+  if (!k) { out.textContent = L("先填 key。", "Enter a key first."); return; }
+  out.textContent = L("测试中…", "Testing…");
   var body = { model: m, max_tokens: MODELS[m].max, messages: [{ role: "user", content: "Reply with the single word OK." }] };
   Object.keys(MODELS[m].extra).forEach(function(x){ body[x] = MODELS[m].extra[x]; });
   fetch(ENDPOINT, { method: "POST", headers: headers(k), body: JSON.stringify(body) })
     .then(function(r){ return r.ok ? r.json() : r.text().then(function(t){ throw apiErr(r.status, t); }); })
-    .then(function(){ out.textContent = "✓ 可用：" + MODELS[m].name + "，" + ((Date.now() - t0) / 1000).toFixed(1) + " 秒回应。"; })
-    .catch(function(e){ out.textContent = "✗ " + (e instanceof TypeError ? "连不上 Claude（网络问题）。" : e.message); });
+    .then(function(){ out.textContent = L("✓ 可用：", "✓ Works: ") + MODELS[m].name + L("，", ", ") + ((Date.now() - t0) / 1000).toFixed(1) + L(" 秒回应。", "s response."); })
+    .catch(function(e){ out.textContent = "✗ " + (e instanceof TypeError ? L("连不上 Claude（网络问题）。", "Can't reach Claude (network).") : e.message); });
 }
 function setMode(m){
   mode = m === "off" || m === "you" ? m : "all"; LS.set(H.modeKey || "aiMode", mode);
@@ -2996,6 +3009,7 @@ function setMode(m){
 var PUB = {
   init: function(h){
     Object.keys(h || {}).forEach(function(k){ H[k] = h[k]; });
+    if (H.lang) LANG = H.lang;
     mode = LS.get(H.modeKey || "aiMode", null);
     if (mode === null && !H.modeKey && LS.get("aiAuto", null) !== null) mode = LS.get("aiAuto", false) ? "all" : "off";
     if (mode === null) mode = H.defaultMode || (H.mobile ? "off" : "all");  // 默认：电脑上「全部」，手机上「关」（手机录、电脑看时只让电脑答）
@@ -3005,14 +3019,16 @@ var PUB = {
     var main = $("main"), wrap = document.createElement("div"); wrap.id = "aiWrap";
     main.parentNode.insertBefore(wrap, main); wrap.appendChild(main);
     var p = document.createElement("aside"); p.className = "ai"; p.id = "ai";
-    p.innerHTML = '<div class="aiBar"><span class="aiTitle">AI 答题</span><div class="aiSeg" id="aiSeg" role="group" aria-label="自动答题">' +
-      '<button data-m="off" title="只转写，不自动调用 AI">关</button><button data-m="you" title="叫到你的名字才自动回答；面试时每个问题都答">叫到我</button><button data-m="all" title="听到提问就自动回答">全部</button></div>' +
-      '<span class="aiAct" id="aiAct"></span><button class="aiAsk" id="aiAsk" title="马上回答最近的提问（快捷键 A）">答</button>' +
-      '<button class="aiIcon" id="aiCfgBtn" title="AI 设置" aria-label="AI 设置">⚙︎</button><button class="aiIcon aiFoldBtn" id="aiFold" title="收起/展开" aria-label="收起或展开">▾</button></div>' +
+    p.innerHTML = '<div class="aiBar"><span class="aiTitle">' + L("AI 答题", "AI") + '</span><div class="aiSeg" id="aiSeg" role="group" aria-label="auto answer">' +
+      '<button data-m="off" title="' + L("只转写，不自动调用 AI", "Transcribe only") + '">' + L("关", "Off") + '</button>' +
+      '<button data-m="you" title="叫到你的名字才自动回答；面试时每个问题都答">叫到我</button>' +
+      '<button data-m="all" title="' + L("听到提问就自动回答", "Answer every question automatically") + '">' + L("全部", "Auto") + '</button></div>' +
+      '<span class="aiAct" id="aiAct"></span><button class="aiAsk" id="aiAsk" title="' + L("马上回答最近的提问（快捷键 A）", "Answer the latest question now (key: A)") + '">' + L("答", "Answer") + '</button>' +
+      '<button class="aiIcon" id="aiCfgBtn" title="' + L("AI 设置", "AI settings") + '" aria-label="settings">⚙︎</button><button class="aiIcon aiFoldBtn" id="aiFold" aria-label="fold">▾</button></div>' +
       '<div class="aiCards" id="aiCards"><div class="aiEmpty" id="aiEmpty"></div></div><div class="aiFoot" id="aiFoot"></div>';
     wrap.appendChild(p);
-    var dl = document.createElement("dialog"); dl.className = "aiDlg"; dl.id = "aiDlg"; dl.innerHTML = DLG; document.body.appendChild(dl);
-    ORDER.forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = MODELS[id].label; $("aiModel").appendChild(o); });
+    var dl = document.createElement("dialog"); dl.className = "aiDlg"; dl.id = "aiDlg"; dl.innerHTML = DLG(); document.body.appendChild(dl);
+    ORDER.forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = L(MODELS[id].label, MODELS[id].en); $("aiModel").appendChild(o); });
     E = { panel: p, cards: $("aiCards"), empty: $("aiEmpty"), act: $("aiAct"), ask: $("aiAsk"), seg: $("aiSeg"), foot: $("aiFoot"), dlg: dl };
     E.seg.addEventListener("click", function(e){ var b = e.target.closest ? e.target.closest("button[data-m]") : null; if (b) setMode(b.dataset.m); });
     setMode(mode);
@@ -3053,6 +3069,53 @@ var PUB = {
     });
   },
   panel: function(){ return E.panel; },
+  ready: function(){ return !!key(); },
+  modelName: function(){ return MODELS[model()].name; },
+  run: function(system, content, onText, opts){           // 通用一次性调用（比如分析面试材料）
+    opts = opts || {};
+    if (!key()) return Promise.reject(new Error(L("还没有 Claude API key", "No Claude API key yet")));
+    var m = model(), job = { model: m, usage: {} }, out = "";
+    var body = { model: m, max_tokens: opts.max || (m === "claude-opus-5-5" ? 6000 : 3000), stream: true, system: system, messages: [{ role: "user", content: content }] };
+    Object.keys(MODELS[m].extra).forEach(function(k2){ body[k2] = MODELS[m].extra[k2]; });
+    return fetch(ENDPOINT, { method: "POST", headers: headers(key()), body: JSON.stringify(body), signal: opts.signal, cache: "no-store" })
+      .then(function(r){
+        if (!r.ok) return r.text().then(function(t){ throw apiErr(r.status, t); });
+        return sse(r, function(ev){
+          if (ev.type === "message_start" && ev.message && ev.message.usage) job.usage = Object.assign({}, ev.message.usage);
+          else if (ev.type === "message_delta" && ev.usage) Object.assign(job.usage, ev.usage);
+          else if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") { out += ev.delta.text; if (onText) onText(out); }
+          else if (ev.type === "error") throw apiErr(0, JSON.stringify(ev));
+        });
+      })
+      .then(function(){ cost(job); return out; }, function(e){ cost(job); if (e instanceof TypeError) e.message = L("连不上 Claude（网络问题）。", "Can't reach Claude (network)."); throw e; });
+  },
+  chat: function(history, question, onText, signal){       // 侧边对话：材料（缓存）+ 最近的转写 + 问题
+    if (!key()) return Promise.reject(new Error(L("还没有 Claude API key", "No Claude API key yet")));
+    var m = model(), job = { model: m, usage: {} }, out = "";
+    var ctx = [{ type: "text", text: headText() + "\n\n(Context for this chat. The live transcript comes with each question.)\n" }];
+    var extra = []; try { extra = (H.extra && H.extra()) || []; } catch (e) {}
+    extra.forEach(function(b){ ctx.push(JSON.parse(JSON.stringify(b))); });
+    ctx[ctx.length - 1].cache_control = { type: "ephemeral" };
+    var recent = [], w = 0, i;
+    for (i = lines.length - 1; i >= 0 && w < 3000; i--) { recent.unshift(fmt(lines[i])); w += lines[i].w; }
+    var p = H.partial && H.partial(); if (p && p.text) recent.push("[" + now() + ", still talking] " + (p.label ? p.label + ": " : "") + p.text);
+    var msgs = [{ role: "user", content: ctx }, { role: "assistant", content: "Got it." }];
+    history.forEach(function(x){ msgs.push({ role: x.role, content: x.text }); });
+    msgs.push({ role: "user", content: "Live transcript so far (most recent last):\n" + (recent.join("\n") || "(nothing yet)") + "\n\n---\nTime now: " + now() + "\nNolan types: " + question });
+    var body = { model: m, max_tokens: m === "claude-opus-5-5" ? 4000 : 1500, stream: true, system: CHAT_SYSTEM, messages: msgs };
+    Object.keys(MODELS[m].extra).forEach(function(k2){ body[k2] = MODELS[m].extra[k2]; });
+    return fetch(ENDPOINT, { method: "POST", headers: headers(key()), body: JSON.stringify(body), signal: signal, cache: "no-store" })
+      .then(function(r){
+        if (!r.ok) return r.text().then(function(t){ throw apiErr(r.status, t); });
+        return sse(r, function(ev){
+          if (ev.type === "message_start" && ev.message && ev.message.usage) job.usage = Object.assign({}, ev.message.usage);
+          else if (ev.type === "message_delta" && ev.usage) Object.assign(job.usage, ev.usage);
+          else if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") { out += ev.delta.text; onText(out); }
+          else if (ev.type === "error") throw apiErr(0, JSON.stringify(ev));
+        });
+      })
+      .then(function(){ cost(job); return out; }, function(e){ cost(job); if (e instanceof TypeError) e.message = L("连不上 Claude（网络问题）。", "Can't reach Claude (network)."); throw e; });
+  },
   refresh: function(){ if (E.cards) { activity(); empty(); } },    // 换课后（面试/上课）更新面板提示
   ask: function(){ if (hidden) setHidden(false); trigger({ manual: true, you: false, cue: "" }); },
   reset: function(clearCards){
