@@ -1,0 +1,1284 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>面试助手</title>
+<style>
+/* 面试版：答案在上方正中（靠近摄像头），转写在下面；可以把答案放进总在最上层的悬浮窗 */
+:root{
+  --bg:#f5f4f0; --panel:#fffefb; --ink:#1c1c1a; --muted:#6f6d67; --faint:#aeaba3; --line:#e3e0d8;
+  --chip:#ece9e2; --accent:#c4352b; --accent-ink:#fff; --warn:#a9640a; --ok:#2f7a4c; --cap:16px; --pf:24px;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Noto Sans SC","Helvetica Neue",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#111215; --panel:#18191c; --ink:#ebeae6; --muted:#9b9991; --faint:#5d5b56; --line:#26272b;
+         --chip:#222327; --accent:#e2483c; --warn:#dc9c3b; --ok:#5cb784; color-scheme:dark; }
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);display:flex;flex-direction:column;font:15px/1.45 var(--sans)}
+header.top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{font-weight:650;letter-spacing:.02em;margin-right:2px}
+.back{color:var(--muted);font-size:13px;text-decoration:none;padding:0 4px}
+.spacer{flex:1}
+button,select{font:inherit;border:0;border-radius:8px;height:34px;padding:0 12px;cursor:pointer;background:var(--chip);color:var(--ink)}
+select{padding:0 8px;max-width:260px}
+button:disabled,select:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.sz{display:flex;gap:4px}.sz button{width:34px;padding:0}
+.status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
+.status[data-s=live] .pill{background:var(--accent);animation:pulse 1.6s infinite}
+.status[data-s=connecting] .pill,.status[data-s=reconnecting] .pill,.status[data-s=stopping] .pill{background:var(--warn)}
+@keyframes pulse{50%{opacity:.3}}
+#go{background:var(--accent);color:var(--accent-ink);font-weight:600;min-width:92px;display:flex;align-items:center;justify-content:center;gap:8px}
+#go .dot{width:9px;height:9px;border-radius:50%;background:currentColor}
+#go.rec .dot{border-radius:2px}
+.sub{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;padding:5px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line)}
+.sub code{font:12px var(--mono);color:var(--ink);word-break:break-all}
+.sub button{height:24px;padding:0 8px;font-size:12px}
+.warnText{color:var(--warn)}
+#banner{display:none;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 14px;background:var(--chip);border-left:3px solid var(--warn);font-size:14px}
+#banner.on{display:flex}
+#banner button{height:28px;padding:0 10px;font-size:13px;background:var(--panel)}
+
+/* 答案区：上方正中 */
+body.aiTop #aiWrap{flex-direction:column}
+body.aiTop #ai{order:-1;position:static;width:min(900px,calc(100% - 24px));margin:10px auto 0;max-height:62vh;border:1px solid var(--line);border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.07)}
+body.aiTop #ai .aiCards{padding:10px 14px}
+body.aiTop #ai .aiCard:first-of-type .aiA{font-size:var(--pf)}
+body.aiTop #ai .aiCard:first-of-type .aiZ{font-size:15px}
+body.aiTop #ai .aiCard.old{opacity:.55}
+body.aiTop #ai .aiCard.old .aiA{font-size:15px}
+#aiSeg button[data-m=you]{display:none}
+#pipNote{order:-1;width:min(900px,calc(100% - 24px));margin:10px auto 0;padding:12px 14px;border:1px dashed var(--line);border-radius:14px;color:var(--muted);font-size:13px;text-align:center}
+
+/* 转写 */
+main{flex:1;overflow-y:auto;padding:6px 0 40px;min-height:120px}
+#log{max-width:900px;margin:0 auto;padding:0 18px;font-size:var(--cap);line-height:1.5}
+.line{display:grid;grid-template-columns:64px minmax(0,1fr);gap:0 12px;padding:3px 0}
+.line .t{font:11px/1 var(--mono);color:var(--faint);text-align:right;padding-top:calc(var(--cap)*.45)}
+.line .tx{min-width:0;overflow-wrap:anywhere}
+.line.note .tx{font-size:12px;color:var(--muted);font-style:italic}
+.spk{display:inline-block;font-size:11px;font-weight:650;line-height:1;padding:3px 6px;border-radius:5px;margin-right:7px;vertical-align:.15em;background:var(--chip);color:var(--muted)}
+.spk.ask{color:var(--accent)}
+.spk[data-r]{cursor:pointer}
+#live .int{color:var(--muted)} #live.idle{display:none} #liveSpk:empty{display:none}
+.empty{max-width:620px;margin:6vh auto 0;color:var(--muted);font-size:14px;line-height:1.75;padding:0 18px}
+.empty b{color:var(--ink)}
+.empty ol{padding-left:20px;margin:8px 0}
+
+/* 材料 */
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);padding:20px;width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog h3{margin:0 0 4px;font-size:16px}
+dialog h4{margin:18px 0 8px;font-size:14px;padding-top:12px;border-top:1px solid var(--line)}
+dialog p{margin:0 0 12px;color:var(--muted);font-size:13px;line-height:1.55}
+.f{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;min-width:0}
+.f>label{font-size:12px;color:var(--muted)}
+.f input,.f textarea{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);padding:8px 10px;font:13px/1.45 var(--sans)}
+.f input{height:36px}
+.f textarea{resize:vertical;min-height:60px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.profRow{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.profRow select{flex:1;min-width:180px;max-width:none}
+.files{display:flex;flex-direction:column;gap:4px;margin:2px 0 6px}
+.file{display:flex;align-items:center;gap:8px;font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+.file .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file .kd{font-size:11px;color:var(--muted)}
+.file button{height:24px;width:24px;padding:0;font-size:11px;background:transparent;color:var(--faint)}
+.addBtn{align-self:flex-start;height:30px;font-size:13px}
+#mInfo{font-size:12px;color:var(--muted);min-height:1.3em;margin-top:4px;white-space:pre-line}
+.rowEnd{display:flex;justify-content:flex-end;gap:8px;margin-top:10px;flex-wrap:wrap}
+.primary{background:var(--accent);color:var(--accent-ink)}
+
+/* 悬浮窗里 */
+body.pip{background:var(--panel);display:block}
+body.pip #ai{width:100%;height:100vh;max-height:none;margin:0;border:0;border-radius:0;box-shadow:none}
+body.pip #ai .aiCard.old,body.pip #ai .aiFoot{display:none}
+body.pip #ai .aiBar{min-height:42px;padding:4px 10px}
+body.pip #ai .aiTitle{display:none}
+
+@media (max-width:700px){
+  .grid2{grid-template-columns:1fr}
+  header.top select{max-width:100%;flex:1 1 40%}
+  .line{grid-template-columns:minmax(0,1fr)} .line .t{text-align:left;padding:0 0 2px}
+}
+</style>
+</head>
+<body class="iv">
+<header class="top">
+  <span class="brand">面试助手</span>
+  <a class="back" href="./">← 课堂</a>
+  <select id="prof" title="选这次是哪场面试"></select>
+  <button id="matBtn" title="公司、职位、JD、research、简历">材料</button>
+  <select id="src" title="面试官的声音从哪来">
+    <option value="mix">视频面试：会议声音 + 麦克风</option>
+    <option value="mic">只用麦克风（外放 / 面对面）</option>
+  </select>
+  <span class="spacer"></span>
+  <div class="status" id="status" data-s="idle"><span class="pill"></span><span id="statusText">未开始</span></div>
+  <div class="sz"><button id="pfSm" title="答案字号减小">A−</button><button id="pfLg" title="答案字号增大">A+</button></div>
+  <button id="pipBtn" title="把答案放进一个总在最上层的小窗，拖到摄像头下面">悬浮窗</button>
+  <button id="go"><span class="dot"></span><span id="goText">开始</span></button>
+</header>
+<div class="sub"><span>存到：<code id="file">—</code></span><span id="count"></span><span id="sync"></span><button id="dl" hidden>下载稿子</button></div>
+<div id="banner"><span id="bannerText"></span><span class="spacer"></span><span id="bannerActions"></span></div>
+<main id="main">
+  <div id="log">
+    <div class="empty" id="empty"></div>
+    <div class="line idle" id="live"><span class="t" id="liveT"></span><span class="tx"><span class="spk" id="liveSpk"></span><span id="liveFin"></span> <span class="int" id="liveInt"></span></span></div>
+  </div>
+</main>
+
+<dialog id="mat">
+  <h3>面试材料</h3>
+  <p>AI 回答时会参考这些（简历只用里面真有的经历，不编）。只存在这台电脑的浏览器里。</p>
+  <div class="profRow"><select id="mProf"></select><button id="mNew">新建一场面试</button><button id="mDel">删除这场</button></div>
+  <div class="grid2">
+    <div class="f"><label for="mCompany">公司 / 机构</label><input id="mCompany" placeholder="如 Ropes &amp; Gray" autocomplete="off"></div>
+    <div class="f"><label for="mPosition">职位</label><input id="mPosition" placeholder="如 2027 Summer Associate" autocomplete="off"></div>
+  </div>
+  <div class="f"><label for="mWho">面试官（名字、职位、背景，可留空）</label><input id="mWho" autocomplete="off"></div>
+  <div class="f"><label for="mJD">职位描述 / JD（粘贴）</label><textarea id="mJD" rows="4"></textarea></div>
+  <div class="f"><label for="mRes">我的 research（公司业务、近期 deal、practice group、面试官背景、想问他们的问题）</label><textarea id="mRes" rows="6"></textarea></div>
+  <div class="f"><label>这场面试的文件（PDF、Word、txt、md；比如 research 报告）</label><div class="files" id="mFiles"></div><button class="addBtn" id="mAdd">＋ 上传文件</button></div>
+  <h4>每场面试都用</h4>
+  <div class="f"><label>简历</label><div class="files" id="cFiles"></div><button class="addBtn" id="cAdd">＋ 上传简历（PDF / Word）</button>
+    <textarea id="cResume" rows="3" placeholder="或者直接把简历文字粘贴在这里"></textarea></div>
+  <div class="f"><label for="cStories">我的故事 / 想强调的点（STAR 素材、why law、why this practice、职业规划）</label><textarea id="cStories" rows="5"></textarea></div>
+  <div id="mInfo"></div>
+  <div class="rowEnd"><button id="mCancel">取消</button><button class="primary" id="mSave">保存</button></div>
+  <input type="file" id="fileIn" hidden multiple accept=".pdf,.docx,.txt,.md,application/pdf,text/plain,text/markdown">
+</dialog>
+
+<script>
+/* ===================== AI 答题：听到老师提问 → 自动读最近的转写、用 Claude 想好答案 =====================
+   页面只需要：AIQ.init({...}) 一次；每段定稿 AIQ.line(时间, 讲话人, 文本, 是否检查提问)；
+   录音时每个 Deepgram final 片段 AIQ.heard(讲话人, 文本)；换稿子时 AIQ.reset()。 */
+window.AIQ = (function(){
+"use strict";
+var QS = new URLSearchParams(location.search);
+var ENDPOINT = QS.get("ai") || "https://api.anthropic.com/v1/messages";   // ?ai= 仅测试用
+// 价格：美元 / 百万 token：[输入, 写缓存, 读缓存, 输出]（platform.claude.com 定价页，2026-11）
+var MODELS = {
+  "claude-sonnet-5-5": { name: "Sonnet 5.5", label: "Sonnet 5.5 · 推荐：快，答得好", p: [2, 2.5, 0.10, 10], max: 700,
+                         extra: { thinking: { type: "between_tools" }, output_config: { effort: "medium" } } },
+  "claude-haiku-5-5":  { name: "Haiku 5.5", label: "Haiku 5.5 · 最快、最便宜", p: [0.10, 0.125, 0.01, 0.50], max: 700,
+                         extra: { thinking: { type: "disabled" }, output_config: { effort: "low" } } },
+  "claude-opus-5-5":   { name: "Opus 5.5", label: "Opus 5.5 · 最强，慢几秒", p: [4, 5, 0.20, 20], max: 2500,
+                         extra: { output_config: { effort: "low" } } }
+};
+var ORDER = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"];
+var GAP = 4000;          // 两次自动请求至少隔 4 秒（期间的新提问合并成一次）
+var CH = 20;             // 转写按 20 段一块发送，前面的块不变 → 走提示缓存，便宜也更快
+var MAXW = 9000, KEEPW = 4500, MAXCARDS = 12, STALE = 45;
+
+var SYSTEM = [
+  "You are Nolan's live answer assistant. Nolan is a 2L at the University of Minnesota Law School. You get a live, automatic speech-to-text transcript of his class or of a job interview, and you write what he can say out loud. He will read your answer aloud while people wait, so it has to sound natural when spoken.",
+  "",
+  "Every request is a question to answer. Never skip one and never ask for more context. The newest lines (and the line quoted at the end) contain the question. If that line is only a fragment, work out the full question from the lines around it. If it is not really a question, answer the most recent real question in the transcript; if there is none, answer the question Nolan is most likely to be asked next.",
+  "",
+  "Reply in exactly this format, with no preamble and no markdown:",
+  "Q: <the question, cleaned up, at most 15 words>",
+  "A: <the spoken answer: 2-4 sentences, about 40-70 words. The first sentence is the direct answer. Then the reason: the rule, test, case or statute and how it applies to the facts being discussed. If the professor is pushing back on a view, address the push-back.>",
+  "中: <one short line in Chinese for Nolan: the key point, legal terms written as 中文（English）>",
+  "",
+  "How A must sound:",
+  "- Like a well-prepared student talking in class: plain words, short sentences, contractions are fine, \"I think\" or \"I'd say\" is fine. No lists, no parentheses, no headings.",
+  "- Write citations the way people say them: \"section 107\", \"the Feist case\", \"Rule 144\", not \"17 U.S.C. § 107\".",
+  "- Ground it in what was said in this class first and general law second; reuse the professor's framing and terms.",
+  "- Never invent case names, holdings, quotes or section numbers. If unsure of a citation, state the principle without one.",
+  "- The transcript is automatic: expect misheard words (e.g. \"Wixis\" = WKSI, \"fare use\" = fair use) and wrong or shifting speaker labels (\"Prof\" is whoever talks most; \"Speaker N\" are others). Read through the errors.",
+  "- If the setting is a job interview: answer as Nolan in the first person, about 60-110 words (up to 150 for \"tell me about yourself\" or \"walk me through your resume\"). Use his materials: tie the answer to this firm and role using the job description and his research. For a behavioral question, tell a compact STAR story. For \"Do you have any questions for us?\", give two specific questions drawn from his research.",
+  "- About Nolan's own experience, use only facts in his resume and materials. Never invent jobs, deals, clients, numbers or stories. If nothing in his materials fits, answer honestly with what does fit, and say in the 中 line what is missing.",
+].join("\n");
+var MANUAL = "Nolan pressed the Answer button: answer the most recent question in the transcript, even if it is implicit or was asked a little earlier. If there is no question at all, give the question he is most likely to be cold-called on about what is being discussed right now, and answer that.";
+var DEFAULT_NAMES = "Nolan, Zhu";
+
+var LS = {
+  get: function(k, d){ try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set: function(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+var H = { course: function(){ return ""; }, meta: function(){ return null; }, partial: function(){ return null; }, mobile: false, key: "" };
+var cfg = LS.get("aiCfg", {});                  // {key, model, names, about}
+var mode = null;                                  // off 只转写 / you 叫到我才答 / all 听到提问都答
+var hidden = LS.get("aiHidden", null);
+var lines = [], base = 0, seen = {}, nSeen = 0, answered = [], busy = null, queued = null, qTimer = 0, lastFire = 0, blocked = "", flashT = 0;
+var E = {};
+var $ = function(id){ return document.getElementById(id); };
+function pad(n){ return String(n).padStart(2, "0"); }
+function now(){ return new Date().toTimeString().slice(0, 8); }
+function today(){ var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+function key(){ return String(cfg.key || H.key || "").trim(); }
+function model(){ return MODELS[cfg.model] ? cfg.model : ORDER[0]; }
+function isInterview(c){ return /interview|面试/i.test(c || ""); }
+function curMode(){                              // 面试时「叫到我」= 全部答（问题都是问你的）
+  var c = ""; try { c = H.course() || ""; } catch (e) {}
+  return mode === "you" && isInterview(c) ? "all" : mode;
+}
+function names(){ return String(cfg.names == null ? DEFAULT_NAMES : cfg.names).split(/[,，;；\n]/).map(function(x){ return x.trim(); }).filter(function(x){ return x.length >= 2; }).slice(0, 6); }
+function ready(){ return !!key() && !blocked; }
+function wc(t){ return (String(t).match(/\S+/g) || []).length; }
+
+/* ---------- 哪句话像提问（「right?」「can you hear me?」这类口头禅不算；其余检测到的都交给 Claude 回答） ---------- */
+var FILLER = /^(right|okay|ok|yeah|yes|no|correct|huh|see|good|great|alright|all right|make sense|does that make sense|got it|you know|sorry|what|hello|hi|can you hear me|can everyone hear me|can you all hear me|is that clear|are we good|ready|questions|any questions|any other questions|any questions so far|go ahead|yes, go ahead|where was i|what time is it|is this on|how are you|how's everyone)\W*$/i;
+var TAG = /,\s*(right|okay|ok|yeah|correct|huh|no|yes|you know|see|you see|isn't it|aren't they|didn't they|doesn't it|wasn't it|agreed)\W*$/i;
+var CUE = /\b(what do you (all |guys )?think|what(?:'s| is) your (view|take|answer|position)|who can (tell|explain|give|remind)|who wants to|who would like to|can (?:someone|somebody|anyone|anybody)|could (?:someone|somebody|anyone|anybody)|does (?:anyone|anybody|someone|somebody)|(?:anyone|anybody) (?:want|care|have|know)|tell me (?:what|why|how|about|whether)|walk (?:me|us) through|talk (?:me|us) through|tell (?:me|us) about (?:a time|yourself|your)|describe (?:a time|a situation|how|what|your)|give (?:me|us) an example|share an example|why (?:do you want|are you interested|our firm|this firm|this role|law)|what (?:interests|attracted|draws) you|how do you (?:handle|deal|approach|manage)|what are your (?:strengths|weaknesses|goals)|where do you see yourself|i'd (?:love|like) to hear|explain (?:to me|to us|why|how|what)|give me (?:an?|the|one|some|your)|how would you|what would you|let's hear|your thoughts|any (?:thoughts|takers|volunteers)|volunteers?|raise your hand|talk to me about|help me out|take a (?:stab|shot|crack) at|how about you|what (?:is|was|are|were) the (?:holding|rule|test|issue|standard|answer|outcome|result|argument|reasoning|best argument))\b/i;
+var CALL = /\b(?:Mr|Ms|Mrs|Mx|Miss)\.?\s+[A-Z][\w'’-]+/;
+var ABBR = /\b(Mr|Ms|Mrs|Mx|Dr|Prof|St|Inc|Co|Corp|Ltd|No|Nos|v|vs|Sec|Art|Cir|Ct|al)\./g;
+function sentences(t){
+  var x = String(t).replace(ABBR, function(m){ return m.slice(0, -1) + "․"; });
+  return (x.match(/[^.?!]+[.?!]*["”’)]?/g) || []).map(function(s){ return s.replace(/․/g, ".").trim(); }).filter(Boolean);
+}
+function near1(a, b){                 // 编辑距离 ≤ 1（Deepgram 常把名字听错一个字母）
+  if (a === b) return true;
+  var la = a.length, lb = b.length, i = 0, j = 0, d = 0;
+  if (Math.abs(la - lb) > 1) return false;
+  while (i < la && j < lb) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++d > 1) return false;
+    if (la > lb) i++; else if (lb > la) j++; else { i++; j++; }
+  }
+  return d + (la - i) + (lb - j) <= 1;
+}
+function nameHit(s){
+  var ns = names(); if (!ns.length) return false;
+  var words = s.match(/[A-Za-z][A-Za-z'’-]*/g) || [], low = s.toLowerCase();
+  return ns.some(function(n){
+    var nl = n.toLowerCase();
+    if (/\s/.test(nl)) return low.indexOf(nl) >= 0;
+    return words.some(function(w){ var x = w.toLowerCase(); return x === nl || (nl.length >= 5 && /^[A-Z]/.test(w) && near1(x, nl)); });
+  });
+}
+function score(s, iv){                // 0 不是；1 像提问；2 点名（Mr./Ms. X）；3 叫到你的名字（面试里叫名字是常事，不算）
+  var n = wc(s); if (!n) return 0;
+  if (!iv && nameHit(s)) return 3;
+  var q = /\?\W*$/.test(s);
+  if (CALL.test(s) && (q || CUE.test(s) || n <= 6)) return 2;
+  if (q) {
+    if (FILLER.test(s) || TAG.test(s)) return 0;
+    if (n <= 2) return (/^[A-Z][a-z]+$/.test(s.replace(/[\s,.?!]/g, "")) || /^(anyone|anybody|thoughts|volunteers|why|how so|and|so)\b/i.test(s)) ? 1 : 0;
+    return 1;
+  }
+  return CUE.test(s) ? 1 : 0;
+}
+function secOf(t){ var m = /^(\d\d):(\d\d):(\d\d)$/.exec(t || ""); return m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : null; }
+function fresh(t){                    // 观看模式：只对刚说的话（45 秒内）自动答，补拉的旧稿不触发
+  var s = secOf(t); if (s === null) return true;
+  var d = new Date(), n = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(), diff = n - s;
+  if (diff < -43200) diff += 86400;
+  return diff <= STALE;
+}
+function consider(label, text){
+  var m = curMode();
+  if (m === "off" || !ready()) return;
+  if (H.asker && !H.asker(label)) return;          // 面试：自己说的话不触发
+  var best = 0, cues = [], t = Date.now(), endsQ = false, iv = false;
+  try { iv = isInterview(H.course()); } catch (e) {}
+  sentences(text).forEach(function(s){                  // 一段话里有几句像提问，也只发一次
+    var sc = score(s, iv); if (!sc) return;
+    var k = s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (seen[k] && t - seen[k] < 90000) return;
+    if (++nSeen > 300) { seen = {}; nSeen = 0; }
+    seen[k] = t; best = Math.max(best, sc); cues.push(s); endsQ = /\?\W*$/.test(s);
+  });
+  if (!best || (m === "you" && best !== 3)) return;
+  var req = { manual: false, you: best === 3, cue: cues.join(" ").slice(-300) };
+  if (req.you || endsQ) trigger(req);
+  else setTimeout(function(){ trigger(req); }, 700);      // 「Walk me through…」这类没问号的：稍等后半句
+}
+
+/* ---------- 排队：一次只跑一个请求；叫到你的名字优先 ---------- */
+var batch = null, batchT = 0;
+function trigger(req){                          // 同一时刻到的几句（观看模式一次拉到好几段）合成一次
+  if (!ready()) { if (req.manual) needKey(); return; }
+  if (req.manual) { route(req); return; }
+  batch = batch ? { manual: false, you: batch.you || req.you, cue: (batch.cue + " " + req.cue).slice(-300) } : req;
+  if (!batchT) batchT = setTimeout(function(){ var r = batch; batch = null; batchT = 0; if (r) route(r); }, 0);
+}
+function route(req){
+  if (req.manual || (req.you && !(busy && busy.req.you))) {
+    if (busy) stopJob(busy, "replaced");
+    queued = null; fire(req); return;
+  }
+  queued = queued ? { manual: false, you: queued.you || req.you, cue: req.cue } : req;
+  if (!busy) drain();
+}
+function drain(){
+  clearTimeout(qTimer); qTimer = 0;
+  if (busy || !queued) return;
+  var wait = lastFire + GAP - Date.now();
+  if (wait > 0) { qTimer = setTimeout(drain, wait); activity(); return; }
+  var r = queued; queued = null; fire(r);
+}
+function stopJob(job, why){ job.why = why; try { job.ctrl.abort(); } catch (e) {} }
+
+/* ---------- 请求：页头 + 已定型的转写块（缓存）+ 最新几段和触发说明 ---------- */
+function fmt(l){ return "[" + l.t + "] " + (l.label ? l.label + ": " : "") + l.text; }
+function slide(){
+  var w = 0, i;
+  for (i = lines.length - 1; i >= base; i--) w += lines[i].w;
+  if (w > MAXW) {
+    var acc = 0;
+    for (i = lines.length - 1; i > base; i--) { acc += lines[i].w; if (acc >= KEEPW) break; }
+    base += Math.floor((i - base) / CH) * CH;
+  }
+  if (base > 2000) { lines = lines.slice(base); base = 0; }
+}
+function notesFor(c){ return String((LS.get("aiNotes", {}) || {})[c] || "").trim(); }
+function request(req, m){
+  slide();
+  var meta = {}, course = "";
+  try { meta = H.meta() || {}; course = H.course() || ""; } catch (e) {}
+  course = course || "(not set)";
+  var head = ["Setting: " + (isInterview(course) ? "job interview" : "law school class") + " - " + course];
+  if (meta.prof) head.push("Professor: " + meta.prof);
+  if (meta.people && meta.people.length) head.push("People in this course: " + [].concat(meta.people).join(", "));
+  if (meta.terms) head.push("Key terms: " + meta.terms);
+  var ns = names(); if (ns.length) head.push("Nolan may be called on as: " + ns.join(", "));
+  if (cfg.about && String(cfg.about).trim()) head.push("About Nolan:\n" + String(cfg.about).trim());
+  var nt = notesFor(course); if (nt) head.push("Nolan's notes for this course:\n" + nt);
+  var content = [{ type: "text", text: head.join("\n") + "\n" }];
+  var extra = []; try { extra = (H.extra && H.extra()) || []; } catch (e) {}
+  if (extra.length) {                                    // 面试材料（简历、JD、research、PDF）：整场不变，单独缓存
+    extra.forEach(function(b){ content.push(JSON.parse(JSON.stringify(b))); });
+    content[content.length - 1].cache_control = { type: "ephemeral" };
+  }
+  var LBL = "Live transcript, oldest first:\n";
+  var n = Math.floor((lines.length - base) / CH), i;
+  for (i = 0; i < n; i++) content.push({ type: "text", text: (i ? "" : LBL) + lines.slice(base + i * CH, base + (i + 1) * CH).map(fmt).join("\n") + "\n" });
+  if (n) content[content.length - 1].cache_control = { type: "ephemeral" };
+  var tail = lines.slice(base + n * CH).map(fmt);
+  if (!n) tail.unshift(LBL.trim());
+  var p = H.partial && H.partial();
+  if (p && p.text) tail.push("[" + now() + ", still talking] " + (p.label ? p.label + ": " : "") + p.text);
+  if (!lines.length && !(p && p.text)) tail.push("(nothing transcribed yet)");
+  tail.push("", "---", "Time now: " + now() + ".");
+  tail.push(req.manual ? MANUAL : "Question just heard: \"" + req.cue + "\". Answer it.");
+  if (req.you) tail.push("Nolan's name was just heard there: he is probably being called on, so answer what he is being asked, even if the question is only implied.");
+  content.push({ type: "text", text: tail.join("\n") });
+  var body = { model: m, max_tokens: MODELS[m].max, stream: true, system: SYSTEM, messages: [{ role: "user", content: content }] };
+  Object.keys(MODELS[m].extra).forEach(function(k2){ body[k2] = MODELS[m].extra[k2]; });
+  return body;
+}
+function headers(k){
+  return { "content-type": "application/json", "x-api-key": k, "anthropic-version": "2023-06-01",
+           "anthropic-dangerous-direct-browser-access": "true" };
+}
+function apiErr(status, t){
+  var msg = "", typ = "", e = new Error();
+  try { var j = JSON.parse(t); msg = (j.error && j.error.message) || ""; typ = (j.error && j.error.type) || ""; } catch (x) { msg = String(t || "").slice(0, 200); }
+  e.fatal = false;
+  if (status === 401 || typ === "authentication_error") { e.message = "Claude API key 不对或已失效。"; e.fatal = true; }
+  else if (/credit balance|billing|purchase credits/i.test(msg)) { e.message = "API 账户余额不足：去 Claude Console（platform.claude.com）→ Billing 充值。"; e.fatal = true; }
+  else if (status === 403 || typ === "permission_error") { e.message = "这个 key 没有权限：" + msg; e.fatal = true; }
+  else if (status === 404 || typ === "not_found_error") { e.message = "你的账户用不了这个模型，换一个。（" + msg + "）"; e.fatal = true; }
+  else if (status === 429 || typ === "rate_limit_error") e.message = "请求太多，被限速了，过几秒再试。";
+  else if (status === 529 || typ === "overloaded_error") e.message = "Claude 现在太忙，稍后再试。";
+  else if (status === 400) e.message = "请求被拒：" + msg;
+  else e.message = "Claude 出错（" + (status || typ || "?") + "）：" + msg;
+  return e;
+}
+function sse(resp, on){
+  var reader = resp.body.getReader(), dec = new TextDecoder(), buf = "";
+  function handle(chunk){
+    var data = [];
+    chunk.split("\n").forEach(function(l){ if (l.indexOf("data:") === 0) data.push(l.slice(5).replace(/^ /, "")); });
+    if (!data.length) return;
+    var j; try { j = JSON.parse(data.join("\n")); } catch (e) { return; }
+    on(j);
+  }
+  function pump(){
+    return reader.read().then(function(r){
+      if (r.done) { if (buf.trim()) handle(buf); return; }
+      buf += dec.decode(r.value, { stream: true }).replace(/\r/g, "");
+      var i;
+      while ((i = buf.indexOf("\n\n")) >= 0) { var c = buf.slice(0, i); buf = buf.slice(i + 2); handle(c); }
+      return pump();
+    });
+  }
+  return pump();
+}
+function fire(req){
+  clearTimeout(qTimer); qTimer = 0;
+  lastFire = Date.now();
+  var m = model(), job = { req: req, model: m, card: makeCard(req, m), ctrl: new AbortController(), t0: Date.now(), text: "", first: 0, usage: {} };
+  busy = job; activity();
+  var tmo = setTimeout(function(){ if (!job.first) stopJob(job, "timeout"); }, m === "claude-opus-5-5" ? 40000 : 25000);
+  fetch(ENDPOINT, { method: "POST", headers: headers(key()), body: JSON.stringify(request(req, m)), signal: job.ctrl.signal, cache: "no-store" })
+    .then(function(r){
+      if (!r.ok) return r.text().then(function(t){ throw apiErr(r.status, t); });
+      return sse(r, function(ev){
+        if (ev.type === "message_start" && ev.message && ev.message.usage) job.usage = Object.assign({}, ev.message.usage);
+        else if (ev.type === "message_delta" && ev.usage) Object.assign(job.usage, ev.usage);
+        else if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") {
+          if (!job.first) job.first = Date.now();
+          job.text += ev.delta.text; paint(job);
+        } else if (ev.type === "error") throw apiErr(0, JSON.stringify(ev));
+      });
+    })
+    .then(function(){ finish(job, null); }, function(e){ finish(job, e); })
+    .then(function(){ clearTimeout(tmo); if (busy === job) busy = null; activity(); drain(); });
+}
+function cost(job){
+  var u = job.usage || {}, p = MODELS[job.model].p;
+  var usd = ((u.input_tokens || 0) * p[0] + (u.cache_creation_input_tokens || 0) * p[1] + (u.cache_read_input_tokens || 0) * p[2] + (u.output_tokens || 0) * p[3]) / 1e6;
+  if (!usd) return 0;
+  var s = LS.get("aiSpend", {}); if (s.d !== today()) s = { d: today(), n: 0, usd: 0 };
+  s.n++; s.usd += usd; LS.set("aiSpend", s); foot();
+  return usd;
+}
+
+/* ---------- 卡片 ---------- */
+var TPL = '<div class="aiQ"><span class="aiT"></span><span class="aiBadge"></span><span class="aiQt"></span><button class="aiX" title="关掉" aria-label="关掉">✕</button></div>' +
+          '<div class="aiA"><span class="aiA1"></span> <span class="aiA2"></span></div><div class="aiP"></div><div class="aiZ"></div><div class="aiMeta"></div>';
+function makeCard(req, m){
+  var d = document.createElement("div");
+  d.className = "aiCard run" + (req.you ? " you" : "");
+  d.innerHTML = TPL;
+  d.querySelector(".aiT").textContent = now().slice(0, 5);
+  d.querySelector(".aiBadge").textContent = req.you ? "叫到你了" : req.manual ? "你点的" : "";
+  d.querySelector(".aiQt").textContent = req.manual ? "想一下…" : req.cue;
+  ["aiA", "aiP", "aiZ"].forEach(function(x){ d.querySelector("." + x).hidden = true; });
+  d.querySelector(".aiMeta").textContent = MODELS[m].name + " · 思考中…";
+  E.cards.insertBefore(d, E.cards.firstChild);
+  var c = { el: d, req: req };
+  shown({ card: c, req: req });
+  return c;
+}
+function parse(text){
+  var f = { Q: "", A: "", P: "", Z: "" }, cur = null, map = { "Q": "Q", "A": "A", "+": "P", "中": "Z" };
+  text.split("\n").forEach(function(ln){
+    var m = /^\s*(?:\*\*)?(Q|A|\+|中)(?:\*\*)?\s*[:：]\s?(.*)$/.exec(ln);
+    if (m) { cur = map[m[1]]; f[cur] = f[cur] ? f[cur] + "\n" + m[2] : m[2]; }
+    else if (ln.trim()) { if (cur) f[cur] += "\n" + ln; else f.P = f.P ? f.P + "\n" + ln : ln; }
+  });
+  return f;
+}
+function paint(job){
+  var t = job.text.replace(/^\s+/, ""), el = job.card.el;
+  if (!t || /^NO_QUESTION/.test(t)) return;
+  var f = parse(t), a = f.A.replace(/\n+/g, " "), m = /^(.+?[.!?。！？])(\s+[\s\S]*)?$/.exec(a);
+  if (f.Q) el.querySelector(".aiQt").textContent = f.Q.replace(/\n/g, " ");
+  el.querySelector(".aiA1").textContent = m ? m[1] : a;          // 第一句加粗：先说这句
+  el.querySelector(".aiA2").textContent = m && m[2] ? m[2].trim() : "";
+  el.querySelector(".aiA").hidden = !a;
+  [["aiP", f.P], ["aiZ", f.Z]].forEach(function(x){ var n = el.querySelector("." + x[0]); n.textContent = x[1]; n.hidden = !x[1]; });
+  el.querySelector(".aiMeta").textContent = MODELS[job.model].name + " · 回答中…";
+}
+function shown(job){                            // 新卡片出来：旧的变淡，面板展开，叫到名字时手机震一下
+  var cs = E.cards.querySelectorAll(".aiCard");
+  Array.prototype.forEach.call(cs, function(c, i){ c.classList.toggle("old", c !== job.card.el); if (i >= MAXCARDS) c.remove(); });
+  empty();
+  E.panel.classList.remove("fold");
+  E.cards.scrollTop = 0;
+  if (job.req.you) {
+    try { if (navigator.vibrate) navigator.vibrate([150, 80, 150]); } catch (e) {}
+    E.panel.classList.add("ping"); setTimeout(function(){ E.panel.classList.remove("ping"); }, 2400);
+  }
+}
+function finish(job, e){
+  var el = job.card.el, t = job.text.trim(), secs = ((Date.now() - job.t0) / 1000).toFixed(1);
+  var usd = cost(job);
+  el.classList.remove("run");
+  if (e) {
+    if (e.name === "AbortError" && (job.why === "dismiss" || job.why === "replaced")) { if (!t) { el.remove(); empty(); } else el.querySelector(".aiMeta").textContent = "已停止"; return; }
+    if (e.name === "AbortError") e.message = "Claude 太久没回应（超时）。";
+    else if (e instanceof TypeError) e.message = "连不上 Claude（网络问题）。";
+    if (e.fatal) { blocked = e.message; activity(); }
+    el.classList.add("err");
+    el.querySelector(".aiA").hidden = true; el.querySelector(".aiZ").hidden = true;
+    var pEl = el.querySelector(".aiP"); pEl.hidden = false; pEl.textContent = e.message;
+    var meta = el.querySelector(".aiMeta"); meta.textContent = "";
+    var b = document.createElement("button"); b.className = "aiLink";
+    if (e.fatal) { b.textContent = "打开 AI 设置"; b.onclick = function(){ openDlg(); }; }
+    else { b.textContent = "重试"; b.onclick = function(){ el.remove(); trigger({ manual: true, you: false, cue: "" }); }; }
+    meta.appendChild(b);
+    Array.prototype.forEach.call(E.cards.querySelectorAll(".aiCard.err"), function(c){ if (c !== el) c.remove(); });   // 只留最新一张错误卡
+    return;
+  }
+  if (/^NO_QUESTION/.test(t)) t = "";
+  if (!t) { var p2 = el.querySelector(".aiP"); p2.hidden = false; p2.textContent = "Claude 没有给出答案，点「答」再试一次。"; }
+  var fq = parse(t).Q; if (fq) { answered.push({ q: fq.replace(/\n/g, " "), at: Date.now() }); answered = answered.slice(-8); }
+  el.querySelector(".aiMeta").textContent = MODELS[job.model].name + " · " + (job.first ? ((job.first - job.t0) / 1000).toFixed(1) + " 秒出字，" : "") + secs + " 秒" + (usd ? " · $" + usd.toFixed(usd < 0.01 ? 4 : 3) : "");
+}
+
+/* ---------- 面板 ---------- */
+function activity(){
+  if (!E.act) return;
+  var s = "", run = false;
+  if (!key()) s = "未设置 key";
+  else if (blocked) s = "已暂停：" + blocked;
+  else if (busy) { run = true; s = "回答中…"; }
+  else if (qTimer) s = "马上看下一个提问";
+  else if (flashT) s = E.act.dataset.flash || "";
+  else if (!window.matchMedia("(max-width: 999px)").matches) {
+    var cm = curMode();
+    s = cm === "all" ? (mode === "you" ? "面试：每个问题都答" : "听到提问就答") : cm === "you" ? "叫到你的名字才答" : "只转写，要答案点「答」";
+  }
+  E.act.textContent = s; E.act.classList.toggle("run", run); E.act.classList.toggle("bad", !!blocked || !key());
+}
+function flash(msg){ clearTimeout(flashT); E.act.dataset.flash = msg; flashT = setTimeout(function(){ flashT = 0; activity(); }, 2500); activity(); }
+function foot(){
+  if (!E.foot) return;
+  var s = LS.get("aiSpend", {}), m = MODELS[model()];
+  E.foot.textContent = m.name + (s.d === today() && s.n ? " · 今天 " + s.n + " 次，约 $" + s.usd.toFixed(2) : "") + " · 快捷键 A = 答";
+}
+function empty(){
+  var has = !!E.cards.querySelector(".aiCard:not([hidden])");
+  E.empty.hidden = has;
+  if (has) return;
+  E.empty.textContent = "";
+  if (!key()) {
+    E.empty.appendChild(document.createTextNode("填好 Claude API key 后，听到提问这里会自动写好能直接念的口语答案（加粗的第一句先说），下面一行中文要点。"));
+    var b = document.createElement("button"); b.className = "aiLink"; b.textContent = "设置"; b.onclick = function(){ openDlg(); };
+    E.empty.appendChild(b);
+  } else {
+    var cm = curMode();
+    E.empty.textContent = (cm === "all" ? (mode === "you" ? "面试：每个问题都自动写好第一人称的口语答案。" : "「全部」：听到提问就自动写好口语化的答案。")
+      : cm === "you" ? "「叫到我」：老师叫到你的名字（" + names().join(" / ") + "）才自动回答。"
+      : "「关」：只转写，不调用 AI。") + "任何时候点「答」或按 A，马上回答最近的提问。";
+  }
+}
+function setHidden(h){
+  hidden = h; LS.set("aiHidden", h);
+  document.body.classList.toggle("aiOff", h);
+  if (E.tgl) E.tgl.setAttribute("aria-pressed", String(!h));
+  resize();
+}
+function resize(){
+  var narrow = window.matchMedia("(max-width: 999px)").matches && H.layout !== "top", h = (!hidden && narrow) ? E.panel.offsetHeight : 0;
+  document.documentElement.style.setProperty("--aiH", h + "px");
+}
+var CSS = [
+  "#aiWrap{flex:1;display:flex;min-height:0}",
+  "#aiWrap>main{flex:1;min-width:0}",
+  ".ai{display:flex;flex-direction:column;width:420px;flex:none;min-height:0;background:var(--panel);border-left:1px solid var(--line)}",
+  "body.aiOff .ai{display:none}",
+  ".aiBar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);min-height:52px}",
+  ".aiTitle{font-weight:650;font-size:14px;white-space:nowrap}",
+  ".aiSeg{display:flex;background:var(--chip);border-radius:8px;padding:2px;flex:none}",
+  ".aiSeg button{height:30px;padding:0 9px;font-size:12px;border-radius:6px;background:transparent;color:var(--muted);white-space:nowrap}",
+  ".aiSeg button[aria-pressed=true]{background:var(--panel);color:var(--ink);font-weight:650;box-shadow:0 1px 2px rgba(0,0,0,.1)}",
+  ".aiSeg button[data-m=all][aria-pressed=true]{color:var(--accent)}",
+  ".aiDlg .aiNote{font-size:12px;margin:-4px 0 12px}",
+  ".aiAct{flex:1;min-width:0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+  ".aiAct.run::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:1px;animation:aiP 1s infinite}",
+  ".aiAct.bad{color:var(--warn)}",
+  "@keyframes aiP{50%{opacity:.25}}",
+  ".aiAsk{background:var(--accent);color:var(--accent-ink,#fff);font-weight:650;height:36px;min-width:56px;padding:0 14px;border-radius:8px}",
+  ".aiIcon{width:36px;height:36px;padding:0;border-radius:8px}",
+  ".aiFoldBtn{display:none}",
+  ".aiCards{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch}",
+  ".aiEmpty{color:var(--muted);font-size:13px;line-height:1.6;padding:6px 2px}",
+  ".aiCard{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}",
+  ".aiCard.you{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}",
+  ".aiCard.old{opacity:.62}",
+  ".aiCard.old .aiA{font-size:15px}",
+  ".aiCard.err{border-left:3px solid var(--warn)}",
+  ".aiQ{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--muted)}",
+  ".aiT{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);flex:none}",
+  ".aiBadge{flex:none;font-weight:650;color:var(--accent)}",
+  ".aiBadge:empty{display:none}",
+  ".aiQt{flex:1;min-width:0;overflow-wrap:anywhere}",
+  ".aiX{height:22px;width:22px;padding:0;font-size:11px;line-height:22px;border-radius:6px;background:transparent;color:var(--faint);flex:none}",
+  ".aiA{font-size:18px;line-height:1.45;overflow-wrap:anywhere}",
+  ".aiA1{font-weight:700}",
+  ".aiP{font-size:15px;line-height:1.5;overflow-wrap:anywhere;white-space:pre-line}",
+  ".aiZ{font-size:14px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere;white-space:pre-line}",
+  ".aiMeta{font-size:11px;color:var(--faint);display:flex;gap:8px;align-items:center}",
+  ".aiCard.run .aiMeta::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);animation:aiP 1s infinite}",
+  ".aiLink{height:28px;padding:0 10px;font-size:12px;background:var(--chip);border-radius:7px;margin-left:6px}",
+  ".aiFoot{font-size:11px;color:var(--faint);padding:6px 12px calc(6px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+  ".aiTgl{height:30px;padding:0 10px;font-size:13px;font-weight:650;border-radius:8px}",
+  ".aiTgl[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
+  ".ai.ping .aiBar{animation:aiPing .6s 4}",
+  "@keyframes aiPing{50%{background:color-mix(in srgb,var(--accent) 22%,transparent)}}",
+  "@media (max-width:999px){",
+  "  body:not(.aiTop) .ai{position:fixed;left:0;right:0;bottom:0;width:auto;max-height:52vh;border-left:0;border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.14);z-index:6}",
+  "  body:not(.aiTop) .aiFoldBtn{display:block}",
+  "  body:not(.aiTop) .ai.fold .aiCards,.ai.fold .aiFoot{display:none}",
+  "  body:not(.aiTop) .ai.fold .aiFoldBtn{transform:rotate(180deg)}",
+  "  body:not(.aiOff):not(.aiTop) #aiWrap>main{padding-bottom:calc(110px + var(--aiH,0px))}",
+  "  body:not(.aiOff):not(.aiTop) #jump{transform:translateY(calc(-1 * var(--aiH,0px)))}",
+  "  body:not(.aiTop) .aiA{font-size:17px}",
+  "  .aiTitle{display:none}",
+  "}",
+  ".aiDlg{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);padding:20px;width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 40px)}",
+  ".aiDlg::backdrop{background:rgba(0,0,0,.35)}",
+  ".aiDlg h3{margin:0 0 4px;font-size:16px}",
+  ".aiDlg p{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.55}",
+  ".aiDlg .aiF{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}",
+  ".aiDlg .aiF label{font-size:12px;color:var(--muted)}",
+  ".aiDlg input,.aiDlg select,.aiDlg textarea{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);padding:8px 10px;font:13px/1.45 -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif}",
+  ".aiDlg input,.aiDlg select{height:38px;padding:0 10px}",
+  ".aiDlg #aiKey{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}",
+  ".aiDlg textarea{resize:vertical;min-height:64px}",
+  ".aiDlg .aiChk{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;cursor:pointer}",
+  ".aiDlg .aiChk input{width:auto;height:auto;padding:0;border:0;flex:none}",
+  ".aiDlg .aiRow{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;flex-wrap:wrap}",
+  ".aiDlg .aiPrimary{background:var(--accent);color:var(--accent-ink,#fff)}",
+  "#aiTestOut{font-size:13px;min-height:1.4em;white-space:pre-line;margin-bottom:6px}"
+].join("\n");
+var DLG = '<h3>AI 答题设置</h3>' +
+  '<p>老师提问时，自动让 Claude 读最近的转写、写好答案。key 只存在这台设备的浏览器里，费用记在你自己的 Claude API 账户上（和 claude.ai 订阅分开）。</p>' +
+  '<div class="aiF"><label for="aiKey">Claude API key（在 platform.claude.com/settings/keys 创建，sk-ant- 开头）</label><input id="aiKey" type="password" autocomplete="off" spellcheck="false"></div>' +
+  '<div class="aiF"><label for="aiModel">模型</label><select id="aiModel"></select></div>' +
+  '<p class="aiNote">自动答题在面板顶上切换：<b>关</b> 只转写；<b>叫到我</b> 叫到你的名字才答（面试时每个问题都答）；<b>全部</b> 听到提问就答。手机录、电脑看时，手机保持「关」。</p>' +
+  '<div class="aiF"><label for="aiNames">你的名字（老师点名会怎么叫你，逗号分隔，如 Nolan, Zhu → 「Mr. Zhu」也能认出）</label><input id="aiNames" placeholder="如 Nolan" autocomplete="off"></div>' +
+  '<div class="aiF"><label for="aiNotes">「<span id="aiNotesCourse"></span>」的资料（可留空：阅读笔记、案例、老师强调的测试）</label><textarea id="aiNotes" rows="5"></textarea></div>' +
+  '<div class="aiF"><label for="aiAbout">关于你（可留空；面试时用：经历、想突出的点）</label><textarea id="aiAbout" rows="3"></textarea></div>' +
+  '<div id="aiTestOut"></div>' +
+  '<div class="aiRow"><button id="aiTest">测试 key</button><button id="aiCancel">取消</button><button class="aiPrimary" id="aiSave">保存</button></div>';
+function openDlg(){
+  var c = H.course() || "这门课";
+  $("aiKey").value = cfg.key || ""; $("aiKey").placeholder = H.key ? "已从 ~/.zshrc 读到（留空就用它）" : "";
+  $("aiModel").value = model();
+  $("aiNames").value = cfg.names == null ? DEFAULT_NAMES : cfg.names; $("aiAbout").value = cfg.about || "";
+  $("aiNotesCourse").textContent = c; $("aiNotes").value = notesFor(H.course()); $("aiNotes").disabled = !H.course();
+  $("aiTestOut").textContent = "";
+  E.dlg.showModal();
+}
+function needKey(){ openDlg(); }
+function saveDlg(){
+  cfg = { key: $("aiKey").value.trim(), model: $("aiModel").value, names: $("aiNames").value.trim(), about: $("aiAbout").value.trim() };
+  LS.set("aiCfg", cfg);
+  var c = H.course();
+  if (c) { var all = LS.get("aiNotes", {}) || {}; var v = $("aiNotes").value.trim(); if (v) all[c] = v; else delete all[c]; LS.set("aiNotes", all); }
+  blocked = ""; E.dlg.close();
+  if (key() && hidden) setHidden(false);
+  activity(); foot(); empty();
+  if (PUB.onCfg) PUB.onCfg();
+}
+function testKey(){
+  var k = $("aiKey").value.trim() || H.key, m = $("aiModel").value, out = $("aiTestOut"), t0 = Date.now();
+  if (!k) { out.textContent = "先填 key。"; return; }
+  out.textContent = "测试中…";
+  var body = { model: m, max_tokens: MODELS[m].max, messages: [{ role: "user", content: "Reply with the single word OK." }] };
+  Object.keys(MODELS[m].extra).forEach(function(x){ body[x] = MODELS[m].extra[x]; });
+  fetch(ENDPOINT, { method: "POST", headers: headers(k), body: JSON.stringify(body) })
+    .then(function(r){ return r.ok ? r.json() : r.text().then(function(t){ throw apiErr(r.status, t); }); })
+    .then(function(){ out.textContent = "✓ 可用：" + MODELS[m].name + "，" + ((Date.now() - t0) / 1000).toFixed(1) + " 秒回应。"; })
+    .catch(function(e){ out.textContent = "✗ " + (e instanceof TypeError ? "连不上 Claude（网络问题）。" : e.message); });
+}
+function setMode(m){
+  mode = m === "off" || m === "you" ? m : "all"; LS.set(H.modeKey || "aiMode", mode);
+  if (E.seg) Array.prototype.forEach.call(E.seg.querySelectorAll("button"), function(b){ b.setAttribute("aria-pressed", String(b.dataset.m === mode)); });
+  if (mode === "off") queued = null;
+  activity(); empty();
+}
+
+var PUB = {
+  init: function(h){
+    Object.keys(h || {}).forEach(function(k){ H[k] = h[k]; });
+    mode = LS.get(H.modeKey || "aiMode", null);
+    if (mode === null && !H.modeKey && LS.get("aiAuto", null) !== null) mode = LS.get("aiAuto", false) ? "all" : "off";
+    if (mode === null) mode = H.defaultMode || (H.mobile ? "off" : "all");  // 默认：电脑上「全部」，手机上「关」（手机录、电脑看时只让电脑答）
+    if (hidden === null) hidden = H.mobile && !key();    // 手机上没设置过就先不占地方
+    if (H.layout === "top") { hidden = false; document.body.classList.add("aiTop"); }   // 面试页：答案固定在上方正中
+    var st = document.createElement("style"); st.textContent = CSS; document.head.appendChild(st);
+    var main = $("main"), wrap = document.createElement("div"); wrap.id = "aiWrap";
+    main.parentNode.insertBefore(wrap, main); wrap.appendChild(main);
+    var p = document.createElement("aside"); p.className = "ai"; p.id = "ai";
+    p.innerHTML = '<div class="aiBar"><span class="aiTitle">AI 答题</span><div class="aiSeg" id="aiSeg" role="group" aria-label="自动答题">' +
+      '<button data-m="off" title="只转写，不自动调用 AI">关</button><button data-m="you" title="叫到你的名字才自动回答；面试时每个问题都答">叫到我</button><button data-m="all" title="听到提问就自动回答">全部</button></div>' +
+      '<span class="aiAct" id="aiAct"></span><button class="aiAsk" id="aiAsk" title="马上回答最近的提问（快捷键 A）">答</button>' +
+      '<button class="aiIcon" id="aiCfgBtn" title="AI 设置" aria-label="AI 设置">⚙︎</button><button class="aiIcon aiFoldBtn" id="aiFold" title="收起/展开" aria-label="收起或展开">▾</button></div>' +
+      '<div class="aiCards" id="aiCards"><div class="aiEmpty" id="aiEmpty"></div></div><div class="aiFoot" id="aiFoot"></div>';
+    wrap.appendChild(p);
+    var dl = document.createElement("dialog"); dl.className = "aiDlg"; dl.id = "aiDlg"; dl.innerHTML = DLG; document.body.appendChild(dl);
+    ORDER.forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = MODELS[id].label; $("aiModel").appendChild(o); });
+    E = { panel: p, cards: $("aiCards"), empty: $("aiEmpty"), act: $("aiAct"), ask: $("aiAsk"), seg: $("aiSeg"), foot: $("aiFoot"), dlg: dl };
+    E.seg.addEventListener("click", function(e){ var b = e.target.closest ? e.target.closest("button[data-m]") : null; if (b) setMode(b.dataset.m); });
+    setMode(mode);
+    E.ask.onclick = function(){ PUB.ask(); };
+    $("aiCfgBtn").onclick = openDlg;
+    $("aiFold").onclick = function(){ p.classList.toggle("fold"); resize(); };
+    $("aiSave").onclick = saveDlg; $("aiCancel").onclick = function(){ dl.close(); }; $("aiTest").onclick = testKey;
+    E.cards.addEventListener("click", function(e){
+      var x = e.target.closest ? e.target.closest(".aiX") : null; if (!x) return;
+      var card = x.closest(".aiCard");
+      if (busy && busy.card.el === card) stopJob(busy, "dismiss");
+      card.remove(); empty();
+    });
+    if (H.before || H.after) {                           // 顶栏上的「AI」开关
+      var b = document.createElement("button"); b.className = "aiTgl"; b.id = "aiToggle"; b.textContent = "AI"; b.title = "显示/隐藏 AI 答题";
+      if (H.before) H.before.parentNode.insertBefore(b, H.before); else H.after.parentNode.insertBefore(b, H.after.nextSibling);
+      b.onclick = function(){ setHidden(!hidden); };
+      E.tgl = b;
+    }
+    PUB.bindKeys(document);
+    if (window.matchMedia("(max-width: 999px)").matches && H.layout !== "top") p.classList.add("fold");   // 窄屏：先只露一条，有答案才展开
+    if (window.ResizeObserver) new ResizeObserver(resize).observe(p);
+    window.addEventListener("resize", resize);
+    setHidden(!!hidden); activity(); foot(); empty();
+  },
+  line: function(t, label, text, check){
+    text = String(text || "").trim(); if (!text) return;
+    lines.push({ t: t || now(), label: label || "", text: text, w: wc(text) });
+    if (check && fresh(t)) consider(label, text);
+  },
+  heard: function(label, text){ consider(label, text); },
+  bindKeys: function(doc){                       // A 键 = 答（悬浮窗里也能用）
+    doc.addEventListener("keydown", function(e){
+      if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+      var t = e.target && e.target.tagName;
+      if (/INPUT|TEXTAREA|SELECT/.test(t || "") || (e.target && e.target.isContentEditable) || document.querySelector("dialog[open]")) return;
+      if (e.key === "a" || e.key === "A") { e.preventDefault(); PUB.ask(); }
+    });
+  },
+  panel: function(){ return E.panel; },
+  refresh: function(){ if (E.cards) { activity(); empty(); } },    // 换课后（面试/上课）更新面板提示
+  ask: function(){ if (hidden) setHidden(false); trigger({ manual: true, you: false, cue: "" }); },
+  reset: function(clearCards){
+    lines = []; base = 0; seen = {}; nSeen = 0; queued = null; answered = []; batch = null;
+    if (busy) stopJob(busy, "dismiss");
+    if (clearCards && E.cards) { Array.prototype.forEach.call(E.cards.querySelectorAll(".aiCard"), function(c){ c.remove(); }); empty(); }
+  },
+  names: names,
+  setHostKey: function(k){ H.key = String(k || ""); activity(); empty(); },
+  exportCfg: function(){ return cfg.key ? { a: cfg.key, m: model(), n: cfg.names || "" } : null; },
+  importCfg: function(o){
+    if (!o || !o.a) return;
+    cfg = { key: o.a, model: MODELS[o.m] ? o.m : ORDER[0], names: o.n || cfg.names || "", about: cfg.about || "" };
+    LS.set("aiCfg", cfg);
+  },
+  open: function(){ openDlg(); },
+  onCfg: null
+};
+return PUB;
+})();
+</script>
+<script>
+(function(){
+"use strict";
+var $ = function(id){ return document.getElementById(id); };
+var LS = {
+  get: function(k, d){ try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set: function(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+};
+var QS = new URLSearchParams(location.search);
+var DG = QS.get("dg") || "wss://api.deepgram.com/v1/listen";          // ?dg= 测试用
+var cfg = LS.get("cfg", { key: "", url: "", pass: "" });             // 和课堂页共用：Deepgram key、存稿网址、口令
+function pad(n){ return String(n).padStart(2, "0"); }
+function clock(){ return new Date().toTimeString().slice(0, 8); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+/* ===================== 面试档案和材料 ===================== */
+function blank(){ return { id: uid(), company: "", position: "", who: "", jd: "", research: "", files: [] }; }
+var common = LS.get("ivCommon", { resume: "", stories: "", files: [] });
+var profiles = LS.get("ivProfiles", []);
+if (!profiles.length) profiles = [blank()];
+var curId = LS.get("ivCur", profiles[0].id);
+function cur(){ return profiles.filter(function(p){ return p.id === curId; })[0] || profiles[0]; }
+function title(p){ return p.company ? p.company + (p.position ? " · " + p.position : "") : "（新的面试，点「材料」填）"; }
+function course(){ var p = cur(); return "Interview - " + (p.company || "未命名"); }
+function fillProf(sel, list, id){
+  sel.textContent = "";
+  list.forEach(function(p){ var o = document.createElement("option"); o.value = p.id; o.textContent = title(p); sel.appendChild(o); });
+  sel.value = id;
+}
+function materials(){                          // 发给 Claude 的材料块（整场面试不变 → 走缓存）
+  var p = cur(), t = [], pdfs = [];
+  if (p.company) t.push("Firm / organization: " + p.company);
+  if (p.position) t.push("Position: " + p.position);
+  if (p.who) t.push("Interviewer(s): " + p.who);
+  if (p.jd) t.push("Job description:\n" + p.jd);
+  if (p.research) t.push("Nolan's research on the firm, role and interviewers:\n" + p.research);
+  if (common.resume) t.push("Nolan's resume:\n" + common.resume);
+  if (common.stories) t.push("Nolan's stories and the points he wants to make:\n" + common.stories);
+  common.files.concat(p.files).forEach(function(f){
+    var who = common.files.indexOf(f) >= 0 ? "Nolan's resume file" : "File for this interview";
+    if (f.kind === "pdf") pdfs.push({ label: who + ": " + f.name, data: f.data });
+    else if (f.text) t.push(who + " (" + f.name + "):\n" + f.text);
+  });
+  if (!t.length && !pdfs.length) return [];
+  var blocks = [{ type: "text", text: "Interview materials from Nolan:\n\n" + (t.join("\n\n") || "(see attached PDFs)") }];
+  pdfs.forEach(function(x){
+    blocks.push({ type: "text", text: "Attached PDF - " + x.label });
+    blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: x.data } });
+  });
+  return blocks;
+}
+
+/* ----- 读文件：PDF 原样交给 Claude；Word 解压出文字；txt/md 直接读 ----- */
+function b64(buf){
+  var u = new Uint8Array(buf), s = "", CH = 0x8000;
+  for (var i = 0; i < u.length; i += CH) s += String.fromCharCode.apply(null, u.subarray(i, i + CH));
+  return btoa(s);
+}
+function inflateRaw(u8){
+  if (!window.DecompressionStream) return Promise.reject(new Error("浏览器太旧，读不了 Word，请另存为 PDF"));
+  return new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer().then(function(b){ return new Uint8Array(b); });
+}
+function docxText(buf){
+  var dv = new DataView(buf), u8 = new Uint8Array(buf), i, dec = new TextDecoder();
+  for (i = buf.byteLength - 22; i >= 0; i--) if (dv.getUint32(i, true) === 0x06054b50) break;
+  if (i < 0) return Promise.reject(new Error("不是有效的 .docx"));
+  var cnt = dv.getUint16(i + 10, true), off = dv.getUint32(i + 16, true);
+  for (var n = 0; n < cnt; n++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    var method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true);
+    var nlen = dv.getUint16(off + 28, true), elen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true), loff = dv.getUint32(off + 42, true);
+    var name = dec.decode(u8.subarray(off + 46, off + 46 + nlen));
+    if (name === "word/document.xml") {
+      var start = loff + 30 + dv.getUint16(loff + 26, true) + dv.getUint16(loff + 28, true), data = u8.subarray(start, start + csize);
+      return (method === 0 ? Promise.resolve(data) : inflateRaw(data)).then(function(x){
+        return dec.decode(x).replace(/<w:tab\/>/g, "\t").replace(/<w:br\/>/g, "\n").replace(/<\/w:p>/g, "\n").replace(/<[^>]+>/g, "")
+          .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&amp;/g, "&")
+          .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      });
+    }
+    off += 46 + nlen + elen + clen;
+  }
+  return Promise.reject(new Error("这个 .docx 里没找到正文"));
+}
+function readFile(f){
+  var nm = f.name, low = nm.toLowerCase();
+  if (f.size > 8 * 1024 * 1024) return Promise.reject(new Error(nm + " 太大（超过 8 MB）"));
+  return f.arrayBuffer().then(function(buf){
+    if (low.endsWith(".pdf") || f.type === "application/pdf") {
+      if (f.size > 2.5 * 1024 * 1024) throw new Error(nm + " 超过 2.5 MB，浏览器存不下：压缩一下，或把文字粘贴进去");
+      return { name: nm, kind: "pdf", size: f.size, data: b64(buf) };
+    }
+    if (low.endsWith(".docx")) return docxText(buf).then(function(t){ return { name: nm, kind: "text", size: f.size, text: t }; });
+    if (low.endsWith(".doc")) throw new Error(nm + " 是旧版 Word：另存为 .docx 或 PDF 再传");
+    return { name: nm, kind: "text", size: f.size, text: new TextDecoder().decode(buf).trim() };
+  });
+}
+
+/* ----- 材料对话框（改的是草稿，点保存才生效） ----- */
+var D = null, pickFor = "";
+function openMat(){
+  D = { profiles: JSON.parse(JSON.stringify(profiles)), common: JSON.parse(JSON.stringify(common)), cur: curId };
+  loadDraft(); $("mInfo").textContent = ""; $("mat").showModal();
+}
+function dp(){ return D.profiles.filter(function(p){ return p.id === D.cur; })[0] || D.profiles[0]; }
+function loadDraft(){
+  var p = dp(); D.cur = p.id;
+  fillProf($("mProf"), D.profiles, p.id);
+  $("mCompany").value = p.company; $("mPosition").value = p.position; $("mWho").value = p.who; $("mJD").value = p.jd; $("mRes").value = p.research;
+  $("cResume").value = D.common.resume; $("cStories").value = D.common.stories;
+  renderFiles();
+}
+function keepDraft(){
+  var p = dp();
+  p.company = $("mCompany").value.trim(); p.position = $("mPosition").value.trim(); p.who = $("mWho").value.trim();
+  p.jd = $("mJD").value.trim(); p.research = $("mRes").value.trim();
+  D.common.resume = $("cResume").value.trim(); D.common.stories = $("cStories").value.trim();
+}
+function kb(n){ return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+function renderFiles(){
+  [["mFiles", dp().files], ["cFiles", D.common.files]].forEach(function(x){
+    var box = $(x[0]); box.textContent = "";
+    x[1].forEach(function(f, i){
+      var d = document.createElement("div"); d.className = "file";
+      var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = f.name;
+      var kd = document.createElement("span"); kd.className = "kd"; kd.textContent = (f.kind === "pdf" ? "PDF，原文交给 Claude" : "文字 " + (f.text || "").length + " 字") + " · " + kb(f.size || 0);
+      var rm = document.createElement("button"); rm.textContent = "✕"; rm.title = "移除"; rm.onclick = function(){ x[1].splice(i, 1); renderFiles(); };
+      d.appendChild(nm); d.appendChild(kd); d.appendChild(rm); box.appendChild(d);
+    });
+  });
+}
+$("matBtn").onclick = openMat;
+$("mProf").onchange = function(){ keepDraft(); D.cur = $("mProf").value; loadDraft(); };
+$("mNew").onclick = function(){ keepDraft(); var p = blank(); D.profiles.unshift(p); D.cur = p.id; loadDraft(); $("mCompany").focus(); };
+$("mDel").onclick = function(){
+  var p = dp();
+  if (!window.confirm("删除「" + title(p) + "」这场面试的材料？")) return;
+  D.profiles = D.profiles.filter(function(x){ return x !== p; });
+  if (!D.profiles.length) D.profiles = [blank()];
+  D.cur = D.profiles[0].id; loadDraft();
+};
+$("mAdd").onclick = function(){ pickFor = "m"; $("fileIn").value = ""; $("fileIn").click(); };
+$("cAdd").onclick = function(){ pickFor = "c"; $("fileIn").value = ""; $("fileIn").click(); };
+$("fileIn").onchange = function(){
+  var list = Array.prototype.slice.call(this.files || []), target = pickFor === "c" ? D.common.files : dp().files;
+  if (!list.length) return;
+  $("mInfo").textContent = "读取中…";
+  Promise.all(list.map(function(f){ return readFile(f).catch(function(e){ return { err: e.message }; }); })).then(function(rs){
+    var bad = [];
+    rs.forEach(function(r){ if (r.err) bad.push(r.err); else target.push(r); });
+    renderFiles();
+    $("mInfo").textContent = bad.length ? "✗ " + bad.join("\n✗ ") : "✓ 已读取。点「保存」生效。";
+  });
+};
+$("mCancel").onclick = function(){ $("mat").close(); };
+$("mSave").onclick = function(){
+  keepDraft();
+  var ok = LS.set("ivProfiles", D.profiles) && LS.set("ivCommon", D.common) && LS.set("ivCur", D.cur);
+  if (!ok) {                                   // 浏览器存储满了：恢复原样
+    LS.set("ivProfiles", profiles); LS.set("ivCommon", common); LS.set("ivCur", curId);
+    $("mInfo").textContent = "✗ 存不下：文件太大了（浏览器大约只能存 5 MB）。删掉大的 PDF，或者把文字粘贴进去。";
+    return;
+  }
+  profiles = D.profiles; common = D.common; curId = D.cur;
+  $("mat").close(); afterProfile();
+};
+$("prof").onchange = function(){ curId = $("prof").value; LS.set("ivCur", curId); afterProfile(); };
+function afterProfile(){
+  fillProf($("prof"), profiles, curId);
+  var p = cur(), n = common.files.length + p.files.length, has = !!(p.company || p.jd || p.research || common.resume || n);
+  $("matBtn").textContent = has ? "材料 ✓" : "材料";
+  AIQ.refresh(); renderEmpty();
+}
+
+/* ===================== 通用 UI ===================== */
+var STATUS = { idle: "未开始", connecting: "连接中…", live: "录音中", reconnecting: "重连中…", stopping: "正在收尾…" };
+var startedAt = 0, timerId = 0, stick = true;
+function setStatus(s){
+  $("status").dataset.s = s;
+  var rec = s !== "idle";
+  $("go").classList.toggle("rec", rec); $("goText").textContent = rec ? "结束" : "开始"; $("go").disabled = s === "stopping";
+  $("prof").disabled = rec; $("src").disabled = rec;
+  renderStatus();
+}
+function renderStatus(){
+  var s = $("status").dataset.s, txt = STATUS[s] || s;
+  if (startedAt && s !== "idle") { var sec = Math.floor((Date.now() - startedAt) / 1000); txt += " · " + Math.floor(sec / 60) + ":" + pad(sec % 60); }
+  $("statusText").textContent = txt + (s !== "idle" && nch === 2 ? "（双声道）" : "");
+}
+function banner(msg, actions){
+  var b = $("banner"), a = $("bannerActions"); a.textContent = "";
+  if (!msg) { b.classList.remove("on"); return; }
+  $("bannerText").textContent = msg;
+  (actions || []).forEach(function(x){ var btn = document.createElement("button"); btn.textContent = x[0]; btn.onclick = x[1]; a.appendChild(btn); });
+  b.classList.add("on");
+}
+function follow(){ if (stick) { var m = $("main"); m.scrollTop = m.scrollHeight; } }
+function isAsker(label){ return !/^(nolan|me|我)$/i.test(label || ""); }
+function addLine(t, label, text, cls, rk){
+  $("empty").style.display = "none";
+  var d = document.createElement("div"); d.className = "line" + (cls ? " " + cls : "");
+  var ts = document.createElement("span"); ts.className = "t"; ts.textContent = t || "";
+  var tx = document.createElement("span"); tx.className = "tx";
+  if (label) {
+    var s = document.createElement("span"); s.className = "spk" + (isAsker(label) ? " ask" : ""); s.textContent = label;
+    if (rk) { s.dataset.r = rk; s.title = "点一下改名（填 Nolan = 这是你自己）"; }
+    tx.appendChild(s);
+  }
+  tx.appendChild(document.createTextNode(text));
+  d.appendChild(ts); d.appendChild(tx);
+  $("log").insertBefore(d, $("live"));
+  follow();
+}
+function renderEmpty(){
+  var p = cur();
+  $("empty").innerHTML = "<b>开始前</b><ol>" +
+    "<li>点 <b>材料</b>：填公司、职位、JD、你的 research，上传简历。" + (p.company ? "（现在：" + p.company.replace(/[<&]/g, "") + "）" : "") + "</li>" +
+    "<li>音源：视频面试戴耳机选「麦克风 + 会议声音」，点开始后在弹窗里选会议所在的<b>浏览器标签页</b>（Zoom / Teams / Meet 网页版），勾选<b>分享标签页音频</b>。外放或面对面选「只用麦克风」。</li>" +
+    "<li>点 <b>悬浮窗</b>，把答案小窗拖到摄像头正下方。面试官一提问，答案就出现在那里。</li></ol>" +
+    "转写和答案存进 Google Drive 的 <code>ClassTranscripts</code>（和课堂一样）。";
+  $("empty").style.display = document.querySelector("#log .line:not(#live)") ? "none" : "";
+}
+function setFont(px){ px = Math.max(16, Math.min(40, px)); document.documentElement.style.setProperty("--pf", px + "px"); if (pip) pip.document.documentElement.style.setProperty("--pf", px + "px"); LS.set("ivFont", px); }
+
+/* ===================== 存稿（Google Drive，和课堂页同一个后端） ===================== */
+function hasBackend(){ return !!(cfg.url && cfg.pass); }
+function be(action, data){
+  var body = Object.assign({ action: action, pass: cfg.pass }, data || {});
+  return fetch(cfg.url, { method: "POST", body: JSON.stringify(body), redirect: "follow", cache: "no-store" })
+    .then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function(j){ if (!j.ok) { var e = new Error(j.error || "失败"); e.data = j; throw e; } return j; });
+}
+var all = [], sess = null, outq = [], pushing = false, pushT = 0;
+function setSync(){
+  var el = $("sync");
+  if (!hasBackend()) { el.innerHTML = '<span class="warnText">没设置云端存稿，结束后点「下载稿子」保存</span>'; return; }
+  el.innerHTML = outq.length ? '<span class="warnText">' + outq.length + " 段待上传</span>" : (sess && sess.id ? "已同步" : "");
+}
+function queue(raw){
+  all.push(raw); $("count").textContent = all.length + " 段"; $("dl").hidden = false;
+  if (!sess) return;
+  sess.seq++; outq.push({ seq: sess.seq, text: raw }); setSync(); soon(1500);
+}
+function soon(ms){ if (!pushT) pushT = setTimeout(function(){ pushT = 0; push(); }, ms); }
+function push(){
+  if (pushing || !sess || !sess.id || !outq.length) return Promise.resolve();
+  pushing = true;
+  var batch = outq.slice(0, 200);
+  return be("append", { id: sess.id, seq: batch[0].seq, lines: batch.map(function(x){ return x.text; }) }).then(function(r){
+    outq = outq.filter(function(x){ return x.seq > r.seq; }); pushing = false; setSync();
+    if (outq.length) soon(300);
+  }).catch(function(e){
+    pushing = false;
+    if (e.data && typeof e.data.seq === "number") { var b0 = e.data.seq; outq.forEach(function(x, i){ x.seq = b0 + 1 + i; }); sess.seq = b0 + outq.length; }
+    setSync(); soon(4000);
+  });
+}
+function beginSess(){
+  all = []; outq = []; $("count").textContent = "";
+  if (!hasBackend()) { sess = null; $("file").textContent = "—（只在这个页面，记得下载）"; setSync(); return; }
+  var d = new Date();
+  sess = { id: null, name: null, seq: 0 };
+  $("file").textContent = "（正在创建…）";
+  be("start", { course: course(), device: "面试页", clock: clock(),
+    stamp: d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" + pad(d.getHours()) + pad(d.getMinutes()),
+    started: d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) })
+    .then(function(r){ sess.id = r.id; sess.name = r.name; $("file").textContent = r.name; push(); })
+    .catch(function(e){ $("file").textContent = "—"; banner("云端存稿连不上（" + e.message + "），稿子先留在页面里，结束后点「下载稿子」。"); });
+}
+function endSess(){
+  var s = sess; if (!s) return Promise.resolve();
+  var tryEnd = function(n){
+    return push().then(function(){
+      if (outq.length && n < 3) return new Promise(function(r){ setTimeout(r, 1500); }).then(function(){ return tryEnd(n + 1); });
+      if (s.id) return be("stop", { id: s.id, clock: clock(), ended: new Date().toTimeString().slice(0, 5) }).catch(function(){});
+    });
+  };
+  return tryEnd(0);
+}
+$("dl").onclick = function(){
+  var d = new Date(), name = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" + pad(d.getHours()) + pad(d.getMinutes()) + "_" + course().replace(/[^\w一-鿿-]+/g, "_") + "_transcript.md";
+  var blob = new Blob(["# " + course() + " — 面试转写\n\n" + all.join("\n") + "\n"], { type: "text/markdown" });
+  var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
+};
+
+/* ===================== 录音：麦克风（+ 会议标签页的声音）→ Deepgram ===================== */
+// 双声道：左 = 你的麦克风，右 = 会议声音。Deepgram 分声道转写，所以「谁在说」是确定的，不用猜。
+var WORKLET = "class P extends AudioWorkletProcessor{constructor(o){super();this.k=o.processorOptions.ch;this.r=sampleRate/16000;this.p=0;this.s=new Float32Array(this.k);this.c=0;this.b=new Int16Array(1600*this.k);this.n=0}" +
+  "process(i){var a=i[0];if(!a||!a.length)return true;var L=a[0].length,k=this.k;for(var j=0;j<L;j++){for(var c=0;c<k;c++)this.s[c]+=a[c]?a[c][j]:0;this.c++;this.p+=1;" +
+  "if(this.p>=this.r){this.p-=this.r;for(var c=0;c<k;c++){var v=this.s[c]/this.c;this.s[c]=0;v=v<-1?-1:v>1?1:v;this.b[this.n++]=v<0?v*32768:v*32767}this.c=0;" +
+  "if(this.n===this.b.length){this.port.postMessage(this.b.buffer,[this.b.buffer]);this.b=new Int16Array(1600*this.k);this.n=0}}}return true}}registerProcessor('pcmN',P);";
+var actx = null, mic = null, tab = null, node = null, ws = null, nch = 1, sid = 0, stopping = false;
+var backoff = 1000, failStreak = 0, hadDrop = false, dropAt = 0, keepId = 0, epoch = 0, keyterms = [];
+var buf = {}, spk = { order: [], alias: {} };
+
+function getTab(){
+  if (QS.has("fakeTab")) return navigator.mediaDevices.getUserMedia({ audio: true });       // 测试用
+  if (!navigator.mediaDevices.getDisplayMedia) return Promise.reject(new Error("这个浏览器不能录会议声音"));
+  return navigator.mediaDevices.getDisplayMedia({
+    video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+    systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "include"
+  }).then(function(s){
+    if (!s.getAudioTracks().length) { s.getTracks().forEach(function(t){ t.stop(); }); throw new Error("没勾选「分享标签页音频」"); }
+    s.getVideoTracks().forEach(function(t){ t.enabled = false; });
+    return s;
+  });
+}
+function stopTracks(){
+  [mic, tab].forEach(function(s){ if (s) s.getTracks().forEach(function(t){ try { t.stop(); } catch (e) {} }); });
+  mic = tab = null;
+  if (actx) { try { actx.close(); } catch (e) {} actx = null; node = null; }
+}
+function buildGraph(){
+  var src = actx.createMediaStreamSource(mic), input = src;
+  if (nch === 2) {
+    var mg = actx.createChannelMerger(2);
+    src.connect(mg, 0, 0); actx.createMediaStreamSource(tab).connect(mg, 0, 1); input = mg;
+  }
+  return actx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }))).then(function(){
+    node = new AudioWorkletNode(actx, "pcmN", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], channelCount: nch,
+      channelCountMode: "explicit", channelInterpretation: "discrete", processorOptions: { ch: nch } });
+    node.port.onmessage = function(e){ if (ws && ws.readyState === 1) ws.send(e.data); };
+    var mute = actx.createGain(); mute.gain.value = 0;
+    input.connect(node); node.connect(mute); mute.connect(actx.destination);
+  });
+}
+function dgUrl(){
+  var q = [["model", "nova-3"], ["language", "en"], ["smart_format", "true"], ["punctuate", "true"], ["interim_results", "true"],
+           ["endpointing", "400"], ["utterance_end_ms", "1500"], ["encoding", "linear16"], ["sample_rate", "16000"], ["channels", String(nch)]];
+  q.push(nch === 2 ? ["multichannel", "true"] : ["diarize", "true"]);
+  keyterms.forEach(function(k){ q.push(["keyterm", k]); });
+  return DG + "?" + q.map(function(p){ return p[0] + "=" + encodeURIComponent(p[1]); }).join("&");
+}
+function start(){
+  if ($("status").dataset.s !== "idle") return;
+  cfg = LS.get("cfg", cfg);
+  if (!cfg.key) { banner("还没有 Deepgram key：在课堂页 ⚙ 设置里填一次（同一个浏览器，两边共用）。", [["去课堂页", function(){ location.href = "./"; }]]); return; }
+  var wantTab = $("src").value === "mix", my = ++sid;
+  stopping = false; banner(""); setStatus("connecting");
+  var AC = window.AudioContext || window.webkitAudioContext; actx = new AC();
+  var pMic = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: wantTab, noiseSuppression: false, autoGainControl: true } });
+  var pTab = wantTab ? getTab().catch(function(e){ banner("没拿到会议声音（" + e.message + "），这次只用麦克风。戴耳机时面试官的声音录不到：要么外放，要么结束后重新开始，在弹窗里选会议标签页并勾选「分享标签页音频」。"); return null; }) : Promise.resolve(null);
+  Promise.all([pMic, pTab]).then(function(r){
+    if (my !== sid) { r.forEach(function(s){ if (s) s.getTracks().forEach(function(t){ t.stop(); }); }); return; }
+    mic = r[0]; tab = r[1]; nch = tab ? 2 : 1;
+    if (tab) tab.getAudioTracks()[0].onended = function(){ if (!stopping) note("会议声音停止共享了，之后只录到你的麦克风"); };
+    var p = cur(), names = AIQ.names();
+    keyterms = [p.company].concat(p.who.split(/[,，;；\n]/), names).map(function(x){ return String(x || "").trim(); }).filter(function(x){ return x && x.length <= 40; }).slice(0, 50);
+    return buildGraph().then(function(){
+      clearLog(); AIQ.reset(true); buf = {}; spk.order = []; spk.alias = {}; epoch = 0;
+      beginSess();
+      startedAt = Date.now(); clearInterval(timerId); timerId = setInterval(renderStatus, 1000);
+      backoff = 1000; failStreak = 0; hadDrop = false; stick = true;
+      connect(my);
+    });
+  }).catch(function(e){
+    stopTracks(); setStatus("idle");
+    if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) banner("没有麦克风权限：点地址栏左边的图标，允许使用麦克风，再点开始。");
+    else banner("启动失败：" + (e && e.message || e));
+  });
+}
+function connect(my){
+  if (my !== sid || stopping || !mic) return;
+  setStatus(hadDrop ? "reconnecting" : "connecting");
+  var opened = false, sock;
+  try { sock = new WebSocket(dgUrl(), ["token", cfg.key]); } catch (e) { banner("连接地址有问题：" + e.message); return; }
+  sock.binaryType = "arraybuffer"; ws = sock;
+  sock.onopen = function(){
+    if (my !== sid) { sock.close(); return; }
+    opened = true; failStreak = 0; backoff = 1000; epoch++;
+    if (hadDrop) { note("已重新连接（断线约 " + Math.round((Date.now() - dropAt) / 1000) + " 秒）"); hadDrop = false; }
+    clearInterval(keepId);
+    keepId = setInterval(function(){ if (sock.readyState === 1) sock.send(JSON.stringify({ type: "KeepAlive" })); }, 8000);
+    if (actx && actx.state !== "running") actx.resume().catch(function(){});
+    setStatus("live");
+  };
+  sock.onmessage = onMessage;
+  sock.onclose = function(){
+    clearInterval(keepId);
+    if (ws === sock) ws = null;
+    if (my !== sid) return;
+    if (stopping) { finish(); return; }
+    flushAll();
+    if (opened) { hadDrop = true; dropAt = Date.now(); note("连接中断，重连中"); }
+    else if (++failStreak >= 2) banner("连不上 Deepgram：检查 key、账户余额、网络。仍在自动重试…");
+    setStatus("reconnecting");
+    setTimeout(function(){ connect(my); }, backoff); backoff = Math.min(backoff * 2, 30000);
+  };
+}
+/* ----- 一行一行拼起来；双声道时左 = Nolan，右 = Interviewer；单声道按讲话人区分 ----- */
+function baseLabel(k){ var i = spk.order.indexOf(k); if (i < 0) { spk.order.push(k); i = spk.order.length - 1; } return "Speaker " + (i + 1); }
+function label(ch, sp){
+  if (nch === 2) return ch === 0 ? "Nolan" : "Interviewer";
+  var b = baseLabel(epoch + ":" + (sp == null ? 0 : sp)); return spk.alias[b] || b;
+}
+function B(ch){ return buf[ch] || (buf[ch] = { parts: [], t: null, label: "", rk: "" }); }
+function flush(ch){
+  var b = buf[ch]; if (!b || !b.parts.length) return;
+  var text = b.parts.join(" "), t = b.t, lb = b.label, rk = b.rk;
+  b.parts = []; b.t = null;
+  addLine(t, lb, text, "", rk);
+  AIQ.line(t, lb, text, false);
+  queue("[" + t + "] " + lb + ": " + text);
+  renderLive(null, "");
+}
+function flushAll(){ Object.keys(buf).forEach(function(k){ flush(+k); }); }
+function note(msg){
+  flushAll(); addLine("", null, clock().slice(0, 5) + " " + msg, "note");
+  queue("\n_[" + clock() + "] " + msg + "_\n");
+}
+var liveCh = 0;
+function renderLive(ch, interim){
+  if (ch !== null) liveCh = ch;
+  var b = buf[liveCh], fin = b ? b.parts.join(" ") : "", live = $("live");
+  if (!fin && !interim) { live.classList.add("idle"); return; }
+  $("empty").style.display = "none"; live.classList.remove("idle");
+  $("liveT").textContent = (b && b.t) || clock();
+  $("liveSpk").textContent = (b && b.label) || (nch === 2 ? label(liveCh) : "");
+  $("liveFin").textContent = fin; $("liveInt").textContent = interim || "";
+  follow();
+}
+function onMessage(ev){
+  var d; try { d = JSON.parse(ev.data); } catch (e) { return; }
+  if (d.type === "UtteranceEnd") { if (d.channel && nch === 2) flush(d.channel[0]); else flushAll(); return; }
+  if (d.type !== "Results") return;
+  var ch = d.channel_index ? d.channel_index[0] : 0, alt = ((d.channel && d.channel.alternatives) || [])[0];
+  if (!alt) return;
+  var text = (alt.transcript || "").trim(), b = B(ch), last = "";
+  if (!d.is_final) { if (text) renderLive(ch, text); return; }
+  if (nch === 1 && alt.words && alt.words.length) {
+    var segs = [];
+    alt.words.forEach(function(w){ var sp = w.speaker == null ? 0 : w.speaker, x = w.punctuated_word || w.word, s = segs[segs.length - 1]; if (s && s.sp === sp) s.w.push(x); else segs.push({ sp: sp, w: [x] }); });
+    segs.forEach(function(sg){
+      var lb = label(0, sg.sp);
+      if (b.parts.length && b.label !== lb && sg.w.length >= 3) flush(ch);
+      if (!b.parts.length) { b.t = clock(); b.label = lb; b.rk = "Speaker " + (spk.order.indexOf(epoch + ":" + sg.sp) + 1); }
+      b.parts.push(sg.w.join(" ")); last = lb;
+    });
+  } else if (text) {
+    if (!b.parts.length) { b.t = clock(); b.label = label(ch); b.rk = ""; }
+    b.parts.push(text); last = b.label;
+  }
+  if (text) AIQ.heard(last, text);
+  if (d.speech_final || b.parts.join(" ").length > 700) flush(ch); else renderLive(ch, "");
+}
+function stop(){
+  if (stopping) return;
+  stopping = true; setStatus("stopping");
+  var sock = ws;
+  if (sock && sock.readyState === 1) {
+    try { sock.send(JSON.stringify({ type: "CloseStream" })); } catch (e) {}
+    setTimeout(function(){ if (sock.readyState < 2) sock.close(); }, 5000);
+  } else { if (sock) try { sock.close(); } catch (e) {} finish(); }
+}
+function finish(){
+  if (!stopping) return;
+  flushAll(); renderLive(null, "");
+  stopTracks(); clearInterval(timerId); clearInterval(keepId); sid++;
+  endSess().then(function(){ stopping = false; startedAt = 0; setStatus("idle"); setSync(); });
+}
+function clearLog(){ Array.prototype.slice.call(document.querySelectorAll("#log .line:not(#live)")).forEach(function(n){ n.remove(); }); }
+$("log").addEventListener("click", function(e){        // 单声道时：点讲话人标签改名（填 Nolan = 你自己，不会对你说的话自动答题）
+  var el = e.target.closest ? e.target.closest(".spk[data-r]") : null; if (!el) return;
+  var b = el.dataset.r, curName = spk.alias[b] || b;
+  var v = window.prompt("「" + curName + "」是谁？填 Nolan 表示是你自己；填 Interviewer 或面试官名字：", curName === b ? "" : curName);
+  if (v == null) return;
+  v = v.trim().replace(/[:\[\]\n]/g, "").slice(0, 30); if (!v) return;
+  spk.alias[b] = v;
+  Array.prototype.forEach.call(document.querySelectorAll('.spk[data-r="' + b + '"]'), function(x){ x.textContent = v; x.classList.toggle("ask", isAsker(v)); });
+  note("说话人：" + b + " = " + v);
+});
+
+/* ===================== 悬浮窗（Chrome 的 Document Picture-in-Picture：总在最上层，可以拖到摄像头下面） ===================== */
+var pip = null;
+function openPip(){
+  if (pip) { pip.close(); return; }
+  if (!window.documentPictureInPicture) { banner("这个浏览器没有悬浮窗（要电脑上的 Chrome 116 以上）。也可以把这个窗口缩小，放到摄像头正下方。"); return; }
+  documentPictureInPicture.requestWindow({ width: 600, height: 300 }).then(function(w){
+    pip = w;
+    Array.prototype.forEach.call(document.querySelectorAll("style"), function(s){ w.document.head.appendChild(s.cloneNode(true)); });
+    w.document.title = "面试答案";
+    w.document.documentElement.style.setProperty("--pf", LS.get("ivFont", 24) + "px");
+    w.document.body.className = "pip aiTop iv";
+    var panel = AIQ.panel(), note2 = document.createElement("div");
+    note2.id = "pipNote"; note2.textContent = "答案在悬浮窗里。把小窗拖到摄像头正下方；关掉小窗，答案会回到这里。";
+    $("aiWrap").insertBefore(note2, $("aiWrap").firstChild);
+    w.document.body.appendChild(panel);
+    AIQ.bindKeys(w.document);
+    $("pipBtn").setAttribute("aria-pressed", "true"); $("pipBtn").textContent = "收回悬浮窗";
+    w.addEventListener("pagehide", function(){
+      $("aiWrap").appendChild(panel); note2.remove(); pip = null;
+      $("pipBtn").setAttribute("aria-pressed", "false"); $("pipBtn").textContent = "悬浮窗";
+    });
+  }).catch(function(e){ banner("打不开悬浮窗：" + e.message); });
+}
+
+/* ===================== 事件 / 初始化 ===================== */
+$("go").onclick = function(){ if ($("status").dataset.s === "idle") start(); else stop(); };
+$("pipBtn").onclick = openPip;
+$("pfSm").onclick = function(){ setFont(LS.get("ivFont", 24) - 2); };
+$("pfLg").onclick = function(){ setFont(LS.get("ivFont", 24) + 2); };
+$("src").value = LS.get("ivSrc", "mix");
+$("src").onchange = function(){ LS.set("ivSrc", $("src").value); };
+$("main").addEventListener("scroll", function(){ var m = $("main"); stick = m.scrollHeight - m.scrollTop - m.clientHeight < 60; });
+window.addEventListener("beforeunload", function(e){ if (mic) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("online", function(){ push(); });
+
+setFont(LS.get("ivFont", 24));
+AIQ.init({
+  layout: "top", modeKey: "ivMode", defaultMode: "all", mobile: false,
+  course: course,
+  meta: function(){ return {}; },
+  extra: materials,
+  asker: isAsker,
+  partial: function(){
+    var ch = nch === 2 ? 1 : liveCh, b = buf[ch];
+    return b && b.parts.length && isAsker(b.label) ? { label: b.label, text: b.parts.join(" ") } : null;
+  }
+});
+afterProfile(); setStatus("idle"); setSync();
+if (!cfg.key) banner("还没有 Deepgram key：在课堂页 ⚙ 设置里填一次（同一个浏览器，两边共用）。", [["去课堂页", function(){ location.href = "./"; }]]);
+})();
+</script>
+</body>
+</html>
