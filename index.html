@@ -2498,30 +2498,60 @@ var GAP = 4000;          // 两次自动请求至少隔 4 秒（期间的新提�
 var CH = 20;             // 转写按 20 段一块发送，前面的块不变 → 走提示缓存，便宜也更快
 var MAXW = 9000, KEEPW = 4500, MAXCARDS = 12, STALE = 45;
 
-var SYSTEM = [
-  "You are Nolan's live answer assistant. Nolan is a 2L at the University of Minnesota Law School. You get a live, automatic speech-to-text transcript of his class or of a job interview, and you write what he can say out loud. He will read your answer aloud while people wait, so it has to sound natural when spoken.",
+// 提示词分三块：共同的开头 + 口语风格（去掉「AI 味」）+ 课堂 / 面试各自的格式。他自己写的规则（存在浏览器里）最后附上、优先。
+var SYS_HEAD = [
+  "You are Nolan's live answer assistant. Nolan is a 2L at the University of Minnesota Law School. You get a live, automatic speech-to-text transcript of his class or of a job interview, and you write what he can say out loud. He reads your answer aloud while people wait, so it has to sound like a person talking, not like writing.",
   "",
-  "Every request is a question to answer. Never skip one and never ask for more context. The newest lines (and the line quoted at the end) contain the question. If that line is only a fragment, work out the full question from the lines around it. If it is not really a question, answer the most recent real question in the transcript; if there is none, answer the question Nolan is most likely to be asked next.",
-  "",
+  "Every request is a question to answer. Never ask for more context. The newest lines (and the line quoted at the end) contain the question. If that line is only a fragment, work out the full question from the lines around it. If it is not really a question, answer the most recent real question in the transcript; if there is none, answer the question Nolan is most likely to be asked next.",
+  "The transcript is automatic: expect misheard words (e.g. \"Wixis\" = WKSI, \"fare use\" = fair use) and wrong or shifting speaker labels (\"Prof\" is whoever talks most; \"Speaker N\" are others). Read through the errors."
+].join("\n");
+var STYLE = [
+  "How it must sound. This matters most: listeners can tell when someone is reading AI text.",
+  "- Talk like a sharp, relaxed person in a conversation. Short sentences, most under 15 words. Use contractions: I'm, I've, it's, that's, didn't.",
+  "- Everyday words. Say use, help, work on, lead, good at. Not leverage, utilize, facilitate, spearhead.",
+  "- Never use these: passionate, thrilled, excited to, delve, robust, showcase, foster, navigate (figurative), landscape, journey, resonate, align with, synergy, dynamic, cutting-edge, invaluable, honed, multifaceted, holistic, pivotal, seamless, deeply, truly, unique opportunity, at the intersection of, great question, absolutely.",
+  "- No em dashes, semicolons or parentheses. No strings of three abstract nouns. No rhetorical questions. No wrap-up line at the end (\"Overall…\", \"That's why I believe…\"). Don't repeat the question back.",
+  "- Concrete beats impressive: the actual task, document, client type or result, in plain words. Keep jargon light; an answer that sounds too technical invites follow-up questions.",
+  "- Sound sure. State plans and reasons plainly, without hedging.",
+  "- When talking about his own experience, don't name people the listener wouldn't know (a judge he worked for, a professor, a supervisor, a colleague). Say \"a federal judge\", \"the court\", \"my supervising attorney\" instead.",
+  "- Write citations the way people say them: \"section 107\", \"the Feist case\", \"Rule 144\", not \"17 U.S.C. § 107\".",
+  "- Never invent case names, holdings, quotes or section numbers. If unsure of a citation, state the principle without one.",
+  "- About Nolan's own experience, use only facts in his resume and materials. Never invent jobs, deals, clients, numbers or stories."
+].join("\n");
+var SYS_CLASS = [
   "Reply in exactly this format, with no preamble and no markdown:",
   "Q: <the question, cleaned up, at most 15 words>",
   "A: <the spoken answer: 2-4 sentences, about 40-70 words. The first sentence is the direct answer. Then the reason: the rule, test, case or statute and how it applies to the facts being discussed. If the professor is pushing back on a view, address the push-back.>",
   "中: <one short line in Chinese for Nolan: the key point, legal terms written as 中文（English）>",
   "",
-  "How A must sound:",
-  "- Like a well-prepared student talking in class: plain words, short sentences, contractions are fine, \"I think\" or \"I'd say\" is fine. No lists, no parentheses, no headings.",
-  "- Write citations the way people say them: \"section 107\", \"the Feist case\", \"Rule 144\", not \"17 U.S.C. § 107\".",
-  "- Ground it in what was said in this class first and general law second; reuse the professor's framing and terms.",
-  "- Never invent case names, holdings, quotes or section numbers. If unsure of a citation, state the principle without one.",
-  "- The transcript is automatic: expect misheard words (e.g. \"Wixis\" = WKSI, \"fare use\" = fair use) and wrong or shifting speaker labels (\"Prof\" is whoever talks most; \"Speaker N\" are others). Read through the errors.",
-  "- If the setting is a job interview: answer as Nolan in the first person, about 60-110 words (up to 150 for \"tell me about yourself\" or \"walk me through your resume\"). Use his materials: tie the answer to this firm and role using the job description and his research. For a behavioral question, tell a compact STAR story. For \"Do you have any questions for us?\", give two specific questions drawn from his research.",
-  "- In an interview, replace the 中 line with \"K: <3-5 key words or short phrases separated by ' · '>\" - cues Nolan can glance at so he can speak naturally instead of reading.",
-  "- About Nolan's own experience, use only facts in his resume and materials. Never invent jobs, deals, clients, numbers or stories. If nothing in his materials fits, answer honestly with what does fit, and say in the 中 line what is missing.",
+  "Sound like a well-prepared student in class; \"I think\" or \"I'd say\" is fine. Ground it in what was said in this class first and general law second, and reuse the professor's framing and terms."
 ].join("\n");
-var MANUAL = "Nolan pressed the Answer button: answer the most recent question in the transcript, even if it is implicit or was asked a little earlier. If there is no question at all, give the question he is most likely to be cold-called on about what is being discussed right now, and answer that.";
+var SYS_IV = [
+  "This is a job interview. Answer as Nolan, in the first person, and tie it to this firm and role using his materials (job description, research, brief).",
+  "Reply in exactly this format, with no preamble and no markdown except the \"- \" bullets:",
+  "Q: <the question, cleaned up, at most 12 words>",
+  "A: <the first thing he says: one short sentence that answers directly>",
+  "- <the next thing he says: one short spoken sentence, at most 16 words>",
+  "- <the next one>",
+  "- <optional; at most 4 bullets>",
+  "K: <3-4 cue words separated by ' · ', so he can glance and talk instead of reading>",
+  "",
+  "- Lead plus bullets together: about 50-90 words (up to 130 for \"tell me about yourself\" or \"walk me through your resume\"). Each bullet is one complete sentence he can say as is, in order.",
+  "- Behavioral question: one compact story. The bullets go: the situation, what he did, how it turned out.",
+  "- \"Do you have any questions for us?\": A says yes; each bullet is one specific question drawn from his research.",
+  "- If the interviewer asked several different questions at once, write one Q / A / bullets / K block per question, in the order asked (at most 3), each a bit shorter.",
+  "- If nothing in his materials fits, answer honestly with what does fit, and put \"missing: <what>\" in K.",
+  "",
+  "Too stiff: \"I'm passionate about cross-border transactions, and your robust Asia practice aligns perfectly with my experience.\"",
+  "Right: \"It's mostly the cross-border work. I've done that kind of deal before, and it's a big part of what your team does.\""
+].join("\n");
+var MANUAL = "Nolan pressed the Answer button: answer the most recent question in the transcript, even if it is implicit or was asked a little earlier. If there is no question at all, give the question he is most likely to be asked about what is being discussed right now, and answer that.";
 var DEFAULT_NAMES = "Nolan, Zhu";
-var CHAT_DEEP = "You are Nolan's interview coach on his laptop, before or after a job interview (no time pressure now). Think it through and be specific: use his materials, the brief and the transcript, quote his actual words when giving feedback, and give him exact wording he can use. About his own experience, use only facts from his materials; never invent them. Reply in the language he writes in. Plain text with short headings and bullets is fine.";
-var CHAT_SYSTEM = "You are Nolan's private assistant on his laptop during a live job interview or class. He types to you while it is happening, so be fast and brief: lead with the answer in one or two sentences, then at most three short bullets if needed. Use his materials and the live transcript. When he asks for something to say, give it as natural spoken English he can say as is. About his own experience, use only facts from his materials; never invent them. Reply in the language he writes in. Plain text, no headings.";
+var CHAT_DEEP = "You are Nolan's interview coach on his laptop, before or after a job interview (no time pressure now). Think it through and be specific: use his materials, the brief and the transcript, quote his actual words when giving feedback, and give him exact wording he can use. Any wording you suggest for him to say out loud follows the spoken style below. About his own experience, use only facts from his materials; never invent them. Reply in the language he writes in. Plain text with short headings and bullets is fine.";
+var CHAT_SYSTEM = "You are Nolan's private assistant on his laptop during a live job interview or class. He types to you while it is happening, so be fast and brief: lead with the answer in one or two sentences, then at most three short bullets if needed. Use his materials and the live transcript. When he asks for something to say, give natural spoken English he can say as is, in the spoken style below. About his own experience, use only facts from his materials; never invent them. Reply in the language he writes in. Plain text, no headings.";
+function rulesText(){ var r = String(cfg.rules || "").trim(); return r ? "\n\nNolan's own rules for every answer. Follow them; where they differ from anything above, they win:\n" + r : ""; }
+function sysFor(iv){ return SYS_HEAD + "\n\n" + (iv ? SYS_IV : SYS_CLASS) + "\n\n" + STYLE + rulesText(); }
+function chatSys(deep){ return (deep ? CHAT_DEEP : CHAT_SYSTEM) + "\n\nSpoken style for anything he will say:\n" + STYLE + rulesText(); }
 
 var LANG = "zh";
 function L(zh, en){ return LANG === "en" ? en : zh; }
@@ -2640,7 +2670,7 @@ function route(req){
     if (busy) stopJob(busy, "replaced");
     queued = null; fire(req); return;
   }
-  queued = queued ? { manual: false, you: queued.you || req.you, cue: req.cue } : req;
+  queued = queued ? { manual: false, you: queued.you || req.you, cue: (queued.cue + " " + req.cue).slice(-400) } : req;   // 连着问的几句都留着
   if (!busy) drain();
 }
 function drain(){
@@ -2696,10 +2726,16 @@ function request(req, m){
   if (p && p.text) tail.push("[" + now() + ", still talking] " + (p.label ? p.label + ": " : "") + p.text);
   if (!lines.length && !(p && p.text)) tail.push("(nothing transcribed yet)");
   tail.push("", "---", "Time now: " + now() + ".");
+  var recentQ = answered.filter(function(x){ return Date.now() - x.at < 150000; }).slice(-3);
+  if (!req.manual && recentQ.length) {
+    tail.push("You already answered, newest last: " + recentQ.map(function(x){ return "\"" + x.q + "\""; }).join(", ") + ".");
+    tail.push("If the question just heard only repeats or rephrases the newest of those and asks nothing new, reply with exactly SAME and nothing else. If it adds a new part, answer again and cover the new part.");
+  }
   tail.push(req.manual ? MANUAL : "Question just heard: \"" + req.cue + "\". Answer it.");
   if (req.you) tail.push("Nolan's name was just heard there: he is probably being called on, so answer what he is being asked, even if the question is only implied.");
   content.push({ type: "text", text: tail.join("\n") });
-  var body = { model: m, max_tokens: MODELS[m].max, stream: true, system: SYSTEM, messages: [{ role: "user", content: content }] };
+  var iv = false; try { iv = isInterview(H.course()); } catch (e) {}
+  var body = { model: m, max_tokens: MODELS[m].max, stream: true, system: sysFor(iv), messages: [{ role: "user", content: content }] };
   Object.keys(MODELS[m].extra).forEach(function(k2){ body[k2] = MODELS[m].extra[k2]; });
   return body;
 }
@@ -2772,8 +2808,12 @@ function cost(job){
 }
 
 /* ---------- 卡片 ---------- */
+// 面试页（TOPL）：上方只显示选中的那张答案；下面一排是最近的问题，点一下或按 ← → 翻回去看。
+// 新答案默认自动显示（follow）；你翻到旧的时，新答案只在那一排亮起来，不会把你正在看的盖掉。
+var TOPL = false, view = { sel: null, follow: true, navAt: 0 };
 var TPL = '<div class="aiQ"><span class="aiT"></span><span class="aiBadge"></span><span class="aiQt"></span><button class="aiX" aria-label="close">✕</button></div>' +
-          '<div class="aiA"><span class="aiA1"></span> <span class="aiA2"></span></div><div class="aiP"></div><div class="aiZ"></div><div class="aiMeta"></div>';
+          '<div class="aiA"></div><div class="aiP"></div><div class="aiZ"></div><div class="aiMeta"></div>';
+function setMeta(el, t, short){ el.querySelector(".aiMeta").textContent = t; el.dataset.meta = short || t; if (el === view.sel) syncMeta(); }
 function makeCard(req, m){
   var d = document.createElement("div");
   d.className = "aiCard run" + (req.you ? " you" : "");
@@ -2781,39 +2821,141 @@ function makeCard(req, m){
   d.querySelector(".aiT").textContent = now().slice(0, 5);
   d.querySelector(".aiBadge").textContent = req.you ? L("叫到你了", "Called on you") : req.manual ? L("你点的", "Asked") : "";
   d.querySelector(".aiQt").textContent = req.manual ? L("想一下…", "Thinking…") : req.cue;
+  d.dataset.q = req.manual ? L("你点的…", "Answering…") : req.cue;
   ["aiA", "aiP", "aiZ"].forEach(function(x){ d.querySelector("." + x).hidden = true; });
-  d.querySelector(".aiMeta").textContent = MODELS[m].name + L(" · 思考中…", " · thinking…");
   E.cards.insertBefore(d, E.cards.firstChild);
+  setMeta(d, MODELS[m].name + L(" · 思考中…", " · thinking…"));
   var c = { el: d, req: req };
+  if (req.manual) view.follow = true;
   shown({ card: c, req: req });
   return c;
 }
-function parse(text){
-  var f = { Q: "", A: "", P: "", Z: "" }, cur = null, map = { "Q": "Q", "A": "A", "+": "P", "中": "Z", "K": "Z" };
+function parse(text){                  // -> [{ Q, A, B: [要点], K, P }]：一次问了几个问题就有几块
+  var out = [], cur = null, fld = null;
+  function nb(){ cur = { Q: "", A: "", B: [], K: "", P: "" }; out.push(cur); }
   text.split("\n").forEach(function(ln){
-    var m = /^\s*(?:\*\*)?(Q|A|K|\+|中)(?:\*\*)?\s*[:：]\s?(.*)$/.exec(ln);
-    if (m) { cur = map[m[1]]; f[cur] = f[cur] ? f[cur] + "\n" + m[2] : m[2]; }
-    else if (ln.trim()) { if (cur) f[cur] += "\n" + ln; else f.P = f.P ? f.P + "\n" + ln : ln; }
+    var m = /^\s*(?:\d+[.)]\s*)?(?:\*\*)?(Q|A|K|\+|中)\d*(?:\*\*)?\s*[:：]\s?(.*)$/.exec(ln), b;
+    if (m) {
+      var k = m[1] === "中" ? "K" : m[1] === "+" ? "P" : m[1];
+      if (!cur || (k === "Q" && (cur.Q || cur.A || cur.B.length))) nb();
+      fld = k; cur[k] = cur[k] ? cur[k] + " " + m[2] : m[2];
+      return;
+    }
+    if (!ln.trim()) return;
+    if (!cur) nb();
+    if (fld !== "P" && (b = /^\s*(?:[-•*–]|\d+[.)])\s+(.*)$/.exec(ln))) { cur.B.push(b[1].trim()); fld = "B"; return; }
+    if (fld === "B") cur.B[cur.B.length - 1] += " " + ln.trim();
+    else if (fld) cur[fld] += (cur[fld] ? " " : "") + ln.trim();
+    else cur.P += (cur.P ? "\n" : "") + ln;
   });
-  return f;
+  return out;
 }
+function el_(tag, cls, t){ var e = document.createElement(tag); if (cls) e.className = cls; if (t) e.textContent = t; return e; }
+function render(el, bs){               // 面试：加粗的第一句 + 要点 + 提示词；课堂：第一句加粗，后面接着读
+  var box = el.querySelector(".aiA"), ks = [], ps = [], any = false;
+  var multi = bs.filter(function(b){ return b.A || b.B.length; }).length > 1;
+  box.textContent = "";
+  bs.forEach(function(b, i){
+    if (b.P) ps.push(b.P);
+    var lead = b.A.trim(), bul = b.B.slice();
+    if (!lead && !bul.length) { if (b.K) ks.push(b.K); return; }
+    any = true;
+    var sec = el_("div", "aiB");
+    if (multi) sec.appendChild(el_("div", "aiBq", (i + 1) + " · " + (b.Q || "")));
+    if (TOPL && !bul.length) { var ss = sentences(lead); if (ss.length >= 2) { lead = ss[0]; bul = ss.slice(1); } }   // 没给要点：按句拆开
+    if (TOPL) { if (lead) sec.appendChild(el_("div", "aiA1", lead)); }
+    else {
+      var m = /^(.+?[.!?。！？])(\s+[\s\S]*)?$/.exec(lead), pg = el_("div");
+      pg.appendChild(el_("span", "aiA1", m ? m[1] : lead));
+      if (m && m[2]) { pg.appendChild(document.createTextNode(" ")); pg.appendChild(el_("span", "aiA2", m[2].trim())); }
+      sec.appendChild(pg);
+    }
+    if (bul.length) { var ul = el_("ul", "aiUl"); bul.forEach(function(x){ ul.appendChild(el_("li", "", x)); }); sec.appendChild(ul); }
+    if (b.K) { if (TOPL) sec.appendChild(el_("div", "aiK", b.K)); else ks.push(b.K); }
+    box.appendChild(sec);
+  });
+  box.hidden = !any;
+  var z = el.querySelector(".aiZ"); z.textContent = ks.join("\n"); z.hidden = !ks.length;
+  var pp = el.querySelector(".aiP"); pp.textContent = ps.join("\n"); pp.hidden = !ps.length;
+  return any;
+}
+var HOLD = /^(S(A(M(E)?)?)?|N(O(_[A-Z_]*)?)?)$/;     // 「SAME」「NO_QUESTION」还没写完时先不显示
 function paint(job){
   var t = job.text.replace(/^\s+/, ""), el = job.card.el;
-  if (!t || /^NO_QUESTION/.test(t)) return;
-  var f = parse(t), a = f.A.replace(/\n+/g, " "), m = /^(.+?[.!?。！？])(\s+[\s\S]*)?$/.exec(a);
-  if (f.Q) el.querySelector(".aiQt").textContent = f.Q.replace(/\n/g, " ");
-  el.querySelector(".aiA1").textContent = m ? m[1] : a;          // 第一句加粗：先说这句
-  el.querySelector(".aiA2").textContent = m && m[2] ? m[2].trim() : "";
-  el.querySelector(".aiA").hidden = !a;
-  [["aiP", f.P], ["aiZ", f.Z]].forEach(function(x){ var n = el.querySelector("." + x[0]); n.textContent = x[1]; n.hidden = !x[1]; });
-  el.querySelector(".aiMeta").textContent = MODELS[job.model].name + L(" · 回答中…", " · writing…");
+  if (!t || HOLD.test(t.trim()) || /^(SAME|NO_QUESTION)\b/.test(t)) return;
+  var bs = parse(t), qs = bs.map(function(b){ return b.Q.trim(); }).filter(Boolean);
+  if (qs.length) {
+    el.querySelector(".aiQt").textContent = qs.join("  ·  ");
+    var q = qs[0] + (qs.length > 1 ? "  +" + (qs.length - 1) : "");
+    if (el.dataset.q !== q) { el.dataset.q = q; chips(); }
+  }
+  var any = render(el, bs);
+  if (el.dataset.w !== "1") { el.dataset.w = "1"; setMeta(el, MODELS[job.model].name + L(" · 回答中…", " · writing…")); }
+  if (any && !el.classList.contains("has")) { el.classList.add("has"); arrived(el); }
 }
+function all_(){ return E.cards ? Array.prototype.slice.call(E.cards.querySelectorAll(".aiCard")).reverse() : []; }   // 从旧到新
+function arrived(el){                  // 一张卡有了内容（或出错）
+  if (!TOPL) return;
+  if (!view.follow && Date.now() - view.navAt > 60000) view.follow = true;   // 翻回去看超过一分钟：新答案照常显示
+  if (view.follow || !view.sel || !view.sel.isConnected || !view.sel.classList.contains("has")) select(el, false);
+  else { el.dataset.unseen = "1"; chips(); flash(L("有新答案：按 → 看", "New answer — press → to see it")); }
+}
+function select(el, user){
+  if (!TOPL) return;
+  view.sel = el || null;
+  all_().forEach(function(c){ c.classList.toggle("sel", c === el); });
+  if (el) delete el.dataset.unseen;
+  if (user && el) {
+    var cs = all_();
+    view.navAt = Date.now();
+    view.follow = !cs.slice(cs.indexOf(el) + 1).some(function(c){ return c.classList.contains("has"); });
+  }
+  chips(); syncMeta(); empty();
+  E.cards.scrollTop = 0;
+}
+function step(d){
+  var cs = all_(); if (!cs.length) return;
+  var i = cs.indexOf(view.sel); if (i < 0) i = cs.length - 1;
+  select(cs[Math.max(0, Math.min(cs.length - 1, i + d))], true);
+}
+function drop(el){
+  if (!el) return;
+  var was = el === view.sel; el.remove();
+  if (TOPL && was) {
+    var cs = all_().filter(function(c){ return c.classList.contains("has"); });
+    view.follow = true; select(cs.length ? cs[cs.length - 1] : all_().pop(), false);
+  } else chips();
+  empty();
+}
+function chips(){
+  if (!E.chips) return;
+  var cs = all_(), on = null;
+  E.chips.textContent = ""; E.hist.hidden = !cs.length;
+  cs.forEach(function(c){
+    var b = el_("button", "aiChip" + (c === view.sel ? " on" : "") + (c.classList.contains("run") && !c.classList.contains("has") ? " wait" : "") +
+                (c.dataset.unseen ? " new" : "") + (c.classList.contains("err") ? " bad" : ""),
+                c.classList.contains("err") ? "⚠ " + L("出错", "Error") : (c.dataset.q || "…"));
+    b.title = c.querySelector(".aiT").textContent + "  " + c.querySelector(".aiQt").textContent;
+    b.onclick = function(){ select(c, true); };
+    E.chips.appendChild(b);
+    if (c === view.sel) on = b;
+  });
+  if (on && on.scrollIntoView) try { on.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) {}
+  var nu = cs.filter(function(c){ return c.dataset.unseen; }).length;
+  E.newer.hidden = view.follow || !cs.length || view.sel === cs[cs.length - 1];
+  E.newer.textContent = nu ? L("新答案 ›", "New answer ›") : L("最新 ›", "Latest ›");
+  E.newer.classList.toggle("new", !!nu);
+}
+function syncMeta(){ if (E.hm) E.hm.textContent = view.sel && !view.sel.classList.contains("err") ? (view.sel.dataset.meta || "") : ""; }
 function shown(job){                            // 新卡片出来：旧的变淡，面板展开，叫到名字时手机震一下
   var cs = E.cards.querySelectorAll(".aiCard");
-  Array.prototype.forEach.call(cs, function(c, i){ c.classList.toggle("old", c !== job.card.el); if (i >= MAXCARDS) c.remove(); });
+  Array.prototype.forEach.call(cs, function(c, i){
+    if (i >= MAXCARDS) { if (c === view.sel) view.sel = null; c.remove(); }
+    else if (!TOPL) c.classList.toggle("old", c !== job.card.el);
+  });
+  if (TOPL) { if (!view.sel || !view.sel.isConnected) select(job.card.el, false); else chips(); }
+  else { E.panel.classList.remove("fold"); E.cards.scrollTop = 0; }
   empty();
-  E.panel.classList.remove("fold");
-  E.cards.scrollTop = 0;
   if (job.req.you) {
     try { if (navigator.vibrate) navigator.vibrate([150, 80, 150]); } catch (e) {}
     E.panel.classList.add("ping"); setTimeout(function(){ E.panel.classList.remove("ping"); }, 2400);
@@ -2824,26 +2966,37 @@ function finish(job, e){
   var usd = cost(job);
   el.classList.remove("run");
   if (e) {
-    if (e.name === "AbortError" && (job.why === "dismiss" || job.why === "replaced")) { if (!t) { el.remove(); empty(); } else el.querySelector(".aiMeta").textContent = L("已停止", "Stopped"); return; }
+    if (e.name === "AbortError" && (job.why === "dismiss" || job.why === "replaced")) { if (!t) drop(el); else { setMeta(el, L("已停止", "Stopped")); chips(); } return; }
     if (e.name === "AbortError") e.message = L("Claude 太久没回应（超时）。", "Claude took too long to respond (timeout).");
     else if (e instanceof TypeError) e.message = L("连不上 Claude（网络问题）。", "Can't reach Claude (network).");
     if (e.fatal) { blocked = e.message; activity(); }
     el.classList.add("err");
     el.querySelector(".aiA").hidden = true; el.querySelector(".aiZ").hidden = true;
     var pEl = el.querySelector(".aiP"); pEl.hidden = false; pEl.textContent = e.message;
-    var meta = el.querySelector(".aiMeta"); meta.textContent = "";
+    var meta = el.querySelector(".aiMeta"); meta.textContent = ""; el.dataset.meta = "";
     var b = document.createElement("button"); b.className = "aiLink";
     if (e.fatal) { b.textContent = L("打开 AI 设置", "AI settings"); b.onclick = function(){ openDlg(); }; }
-    else { b.textContent = L("重试", "Retry"); b.onclick = function(){ el.remove(); trigger({ manual: true, you: false, cue: "" }); }; }
+    else { b.textContent = L("重试", "Retry"); b.onclick = function(){ drop(el); trigger({ manual: true, you: false, cue: "" }); }; }
     meta.appendChild(b);
-    Array.prototype.forEach.call(E.cards.querySelectorAll(".aiCard.err"), function(c){ if (c !== el) c.remove(); });   // 只留最新一张错误卡
+    Array.prototype.forEach.call(E.cards.querySelectorAll(".aiCard.err"), function(c){ if (c !== el) drop(c); });   // 只留最新一张错误卡
+    el.classList.add("has"); arrived(el); chips();
     return;
   }
+  if (/^SAME\b/.test(t)) { drop(el); flash(L("还是同一个问题，答案不变", "Same question — the answer above still fits")); return; }   // 换个说法又问一遍：不另起一张
   if (/^NO_QUESTION/.test(t)) t = "";
-  if (!t) { var p2 = el.querySelector(".aiP"); p2.hidden = false; p2.textContent = L("Claude 没有给出答案，点「答」再试一次。", "No answer came back. Press Answer to try again."); }
-  var pf = parse(t), fq = pf.Q; if (fq) { answered.push({ q: fq.replace(/\n/g, " "), at: Date.now() }); answered = answered.slice(-8); }
-  if (H.onAnswer && pf.A) { try { H.onAnswer({ q: (fq || job.req.cue || "").replace(/\s+/g, " "), a: pf.A.replace(/\s+/g, " "), k: pf.Z.replace(/\s+/g, " ") }); } catch (x) {} }
-  el.querySelector(".aiMeta").textContent = MODELS[job.model].name + " · " + (job.first ? ((job.first - job.t0) / 1000).toFixed(1) + L(" 秒出字，", "s to first word, ") : "") + secs + L(" 秒", "s") + (usd ? " · $" + usd.toFixed(usd < 0.01 ? 4 : 3) : "");
+  var bs = t ? parse(t) : [], qs = [], as = [], ks = [];
+  bs.forEach(function(x){
+    if (x.Q.trim()) qs.push(x.Q.trim());
+    var a = [x.A.trim()].concat(x.B).filter(Boolean).join(" / ");
+    if (a) as.push(a); if (x.K.trim()) ks.push(x.K.trim());
+  });
+  if (!as.length) { var p2 = el.querySelector(".aiP"); p2.hidden = false; p2.textContent = L("Claude 没有给出答案，点「答」再试一次。", "No answer came back. Press Answer to try again."); }
+  qs.forEach(function(q){ answered.push({ q: q, at: Date.now() }); }); answered = answered.slice(-8);
+  if (H.onAnswer && as.length) { try { H.onAnswer({ q: (qs.join(" | ") || job.req.cue || "").replace(/\s+/g, " "), a: as.join(" | ").replace(/\s+/g, " "), k: ks.join(" | ").replace(/\s+/g, " ") }); } catch (x) {} }
+  setMeta(el, MODELS[job.model].name + " · " + (job.first ? ((job.first - job.t0) / 1000).toFixed(1) + L(" 秒出字，", "s to first word, ") : "") + secs + L(" 秒", "s") + (usd ? " · $" + usd.toFixed(usd < 0.01 ? 4 : 3) : ""),
+          MODELS[job.model].name + " · " + secs + L(" 秒", "s"));
+  if (!el.classList.contains("has")) { el.classList.add("has"); arrived(el); }
+  chips();
 }
 
 /* ---------- 面板 ---------- */
@@ -2865,8 +3018,36 @@ function flash(msg){ clearTimeout(flashT); E.act.dataset.flash = msg; flashT = s
 function foot(){
   if (!E.foot) return;
   var s = LS.get("aiSpend", {}), m = MODELS[model()];
-  E.foot.textContent = (H.layout === "top" ? "Live: " + m.name + " · prep/review: " + label(true) : m.name) + (s.d === today() && s.n ? L(" · 今天 ", " · today ") + s.n + L(" 次，约 $", " calls, ~$") + s.usd.toFixed(2) : "") + L(" · 快捷键 A = 答", " · press A to answer");
+  var spent = s.d === today() && s.n ? L("今天 ", "today ") + s.n + L(" 次，约 $", " calls, ~$") + s.usd.toFixed(2) : "";
+  E.foot.textContent = TOPL ? [spent, "A = answer", "← → = earlier answers"].filter(Boolean).join(" · ")
+    : m.name + (spent ? " · " + spent : "") + L(" · 快捷键 A = 答", " · press A to answer");
 }
+var DEEPS = [["claude-opus-5-5", "xhigh"], ["claude-opus-5-5", "max"], ["claude-opus-5-5", "high"], ["claude-sonnet-5-5", "xhigh"], ["claude-sonnet-5-5", "high"], ["claude-sonnet-5-5", "medium"]];
+var pickers = [];
+function fillPicker(sel, val){         // kind=live：现场回答的模型；kind=deep：准备 / 分析 / 复盘的「模型 · effort」
+  var kind = sel.dataset.kind; sel.textContent = "";
+  if (kind === "live") {
+    ORDER.forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = sel.dataset.long ? L(MODELS[id].label, MODELS[id].en) : MODELS[id].name; sel.appendChild(o); });
+    sel.value = val || model();
+  } else {
+    var cur = val || deepModel() + "|" + deepEffort(), list = DEEPS.map(function(x){ return x.join("|"); });
+    if (list.indexOf(cur) < 0) list.push(cur);
+    list.forEach(function(v){ var x = v.split("|"), o = document.createElement("option"); o.value = v; o.textContent = MODELS[x[0]].name + " · " + EFFORTS[x[1]] + (v === "claude-opus-5-5|xhigh" ? L("（推荐）", " (recommended)") : ""); sel.appendChild(o); });
+    sel.value = cur;
+  }
+}
+function picker(kind){
+  var s = document.createElement("select"); s.className = "aiPick"; s.dataset.kind = kind;
+  s.title = kind === "live" ? L("现场回答用的模型（要快）", "Model for live answers (needs to be fast)") : L("准备、分析材料、复盘用的模型（不赶时间，用最强的）", "Model for prep, analyzing materials and review (no rush: use the strongest)");
+  fillPicker(s);
+  s.onchange = function(){
+    if (kind === "live") cfg.model = s.value; else { var x = s.value.split("|"); cfg.deepModel = x[0]; cfg.deepEffort = x[1]; }
+    LS.set("aiCfg", cfg); syncPickers(); foot(); if (PUB.onCfg) PUB.onCfg();
+  };
+  pickers.push(s);
+  return s;
+}
+function syncPickers(){ pickers.forEach(function(s){ fillPicker(s); }); }
 function empty(){
   var has = !!E.cards.querySelector(".aiCard:not([hidden])");
   E.empty.hidden = has;
@@ -2929,6 +3110,25 @@ var CSS = [
   ".aiX{height:22px;width:22px;padding:0;font-size:11px;line-height:22px;border-radius:6px;background:transparent;color:var(--faint);flex:none}",
   ".aiA{font-size:18px;line-height:1.45;overflow-wrap:anywhere}",
   ".aiA1{font-weight:700}",
+  ".aiB+.aiB{margin-top:8px}",
+  ".aiBq{font-size:11px;font-weight:650;color:var(--accent)}",
+  ".aiUl{margin:3px 0 0;padding-left:1.1em}",
+  ".aiUl li{margin:2px 0}",
+  ".aiUl li::marker{color:var(--faint)}",
+  ".aiK{font-size:.8em;color:var(--muted);margin-top:3px}",
+  ".aiHist{display:flex;align-items:center;gap:8px;padding:5px 0 0;min-width:0}",
+  ".aiChips{display:flex;gap:4px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}",
+  ".aiChips::-webkit-scrollbar{display:none}",
+  ".aiChip{flex:none;height:22px;max-width:150px;padding:0 9px;font-size:11px;border-radius:11px;overflow:hidden;text-overflow:ellipsis;background:var(--chip);color:var(--muted)}",
+  ".aiChip.on{background:var(--ink);color:var(--bg)}",
+  ".aiChip.new{color:var(--accent);font-weight:650;box-shadow:inset 0 0 0 1px var(--accent)}",
+  ".aiChip.wait::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:5px;vertical-align:1px;animation:aiP 1s infinite}",
+  ".aiChip.bad{color:var(--warn)}",
+  ".aiNewer{flex:none;max-width:none;background:transparent;box-shadow:inset 0 0 0 1px var(--line)}",
+  ".aiNewer.new{background:var(--accent);color:var(--accent-ink,#fff);box-shadow:none;animation:aiP 1.2s 3}",
+  ".aiHm{flex:none;font-size:10px;color:var(--faint);white-space:nowrap}",
+  "body.aiTop .aiCard:not(.sel){display:none}",
+  ".aiPick{height:30px;max-width:160px;font-size:12px}",
   ".aiP{font-size:15px;line-height:1.5;overflow-wrap:anywhere;white-space:pre-line}",
   ".aiZ{font-size:14px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere;white-space:pre-line}",
   ".aiMeta{font-size:11px;color:var(--faint);display:flex;gap:8px;align-items:center}",
@@ -2957,12 +3157,11 @@ var CSS = [
   ".aiDlg .aiF label{font-size:12px;color:var(--muted)}",
   ".aiDlg input,.aiDlg select,.aiDlg textarea{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);padding:8px 10px;font:13px/1.45 -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif}",
   ".aiDlg input,.aiDlg select{height:38px;padding:0 10px}",
+  ".aiDlg select{max-width:none}",
   ".aiDlg #aiKey{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}",
   ".aiDlg textarea{resize:vertical;min-height:64px}",
   ".aiDlg .aiChk{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;cursor:pointer}",
   ".aiDlg .aiChk input{width:auto;height:auto;padding:0;border:0;flex:none}",
-  ".aiDlg .aiPair{display:flex;gap:8px}",
-  ".aiDlg .aiPair select{flex:1}",
   ".aiDlg .aiRow{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;flex-wrap:wrap}",
   ".aiDlg .aiPrimary{background:var(--accent);color:var(--accent-ink,#fff)}",
   "#aiTestOut{font-size:13px;min-height:1.4em;white-space:pre-line;margin-bottom:6px}"
@@ -2973,10 +3172,11 @@ function DLG(){
   '<p>' + L("老师提问时，自动让 Claude 读最近的转写、写好答案。key 只存在这台设备的浏览器里，费用记在你自己的 Claude API 账户上（和 claude.ai 订阅分开）。",
             "Claude reads the live transcript and writes your answers. The key stays in this browser; usage is billed to your own Claude API account (separate from a claude.ai subscription).") + '</p>' +
   '<div class="aiF"><label for="aiKey">' + L("Claude API key（在 platform.claude.com/settings/keys 创建，sk-ant- 开头）", "Claude API key (create one at platform.claude.com/settings/keys; starts with sk-ant-)") + '</label><input id="aiKey" type="password" autocomplete="off" spellcheck="false"></div>' +
-  '<div class="aiF"><label for="aiModel">' + L("模型", ivp ? "Model during the interview (fast)" : "Model") + '</label><select id="aiModel"></select></div>' +
-  (ivp ? '<div class="aiF"><label for="aiDeep">Model for prep and review (before / after — no time pressure)</label><div class="aiPair"><select id="aiDeep"></select><select id="aiEffort"></select></div></div>' : '') +
+  '<div class="aiF"><label for="aiModel">' + L("模型", ivp ? "Model during the interview (fast)" : "Model") + '</label><select id="aiModel" data-kind="live" data-long="1"></select></div>' +
+  (ivp ? '<div class="aiF"><label for="aiDeep">Model for prep, analyzing materials and review (no time pressure)</label><select id="aiDeep" data-kind="deep"></select></div>' : '') +
   (ivp ? '' : '<p class="aiNote">自动答题在面板顶上切换：<b>关</b> 只转写；<b>叫到我</b> 叫到你的名字才答（面试时每个问题都答）；<b>全部</b> 听到提问就答。手机录、电脑看时，手机保持「关」。</p>') +
   '<div class="aiF"><label for="aiNames">' + L("你的名字（老师点名会怎么叫你，逗号分隔，如 Nolan, Zhu → 「Mr. Zhu」也能认出）", "Your name as people say it (comma-separated)") + '</label><input id="aiNames" autocomplete="off"></div>' +
+  '<div class="aiF"><label for="aiRules">' + L("你自己的答题规则（每个回答都照做，比如「要口语」「提到 externship 只说 a federal judge，不说名字」）", "Your rules for every answer (how it should sound, what to say or never say)") + '</label><textarea id="aiRules" rows="4" placeholder="' + L("- 口语化，别太正式\n- …", "- Casual, like talking to a colleague. Not formal.\n- …") + '"></textarea></div>' +
   '<div class="aiF"' + (ivp ? ' hidden' : '') + '><label for="aiNotes">「<span id="aiNotesCourse"></span>」的资料（可留空：阅读笔记、案例、老师强调的测试）</label><textarea id="aiNotes" rows="5"></textarea></div>' +
   '<div class="aiF"' + (ivp ? ' hidden' : '') + '><label for="aiAbout">关于你（可留空；面试时用：经历、想突出的点）</label><textarea id="aiAbout" rows="3"></textarea></div>' +
   '<div id="aiTestOut"></div>' +
@@ -2985,8 +3185,9 @@ function DLG(){
 function openDlg(){
   var c = H.course() || L("这门课", "this course");
   $("aiKey").value = cfg.key || ""; $("aiKey").placeholder = H.key ? L("已从 ~/.zshrc 读到（留空就用它）", "Found in ~/.zshrc (leave empty to use it)") : "";
-  $("aiModel").value = model();
-  if ($("aiDeep")) { $("aiDeep").value = deepModel(); $("aiEffort").value = deepEffort(); }
+  fillPicker($("aiModel"));
+  if ($("aiDeep")) fillPicker($("aiDeep"));
+  $("aiRules").value = cfg.rules || "";
   $("aiNames").value = cfg.names == null ? DEFAULT_NAMES : cfg.names; $("aiAbout").value = cfg.about || "";
   $("aiNotesCourse").textContent = c; $("aiNotes").value = notesFor(H.course()); $("aiNotes").disabled = !H.course();
   $("aiTestOut").textContent = "";
@@ -2994,9 +3195,10 @@ function openDlg(){
 }
 function needKey(){ openDlg(); }
 function saveDlg(){
-  cfg = { key: $("aiKey").value.trim(), model: $("aiModel").value, names: $("aiNames").value.trim(), about: $("aiAbout").value.trim(),
-          deepModel: $("aiDeep") ? $("aiDeep").value : cfg.deepModel, deepEffort: $("aiEffort") ? $("aiEffort").value : cfg.deepEffort };
-  LS.set("aiCfg", cfg);
+  var dp = $("aiDeep") ? $("aiDeep").value.split("|") : [cfg.deepModel, cfg.deepEffort];
+  Object.assign(cfg, { key: $("aiKey").value.trim(), model: $("aiModel").value, names: $("aiNames").value.trim(), about: $("aiAbout").value.trim(),
+          rules: $("aiRules").value.trim(), deepModel: dp[0], deepEffort: dp[1] });
+  LS.set("aiCfg", cfg); syncPickers();
   var c = H.course();
   if (c) { var all = LS.get("aiNotes", {}) || {}; var v = $("aiNotes").value.trim(); if (v) all[c] = v; else delete all[c]; LS.set("aiNotes", all); }
   blocked = ""; E.dlg.close();
@@ -3030,7 +3232,8 @@ var PUB = {
     if (mode === null && !H.modeKey && LS.get("aiAuto", null) !== null) mode = LS.get("aiAuto", false) ? "all" : "off";
     if (mode === null) mode = H.defaultMode || (H.mobile ? "off" : "all");  // 默认：电脑上「全部」，手机上「关」（手机录、电脑看时只让电脑答）
     if (hidden === null) hidden = H.mobile && !key();    // 手机上没设置过就先不占地方
-    if (H.layout === "top") { hidden = false; document.body.classList.add("aiTop"); }   // 面试页：答案固定在上方正中
+    TOPL = H.layout === "top";
+    if (TOPL) { hidden = false; document.body.classList.add("aiTop"); }   // 面试页：答案固定在上方正中
     var st = document.createElement("style"); st.textContent = CSS; document.head.appendChild(st);
     var main = $("main"), wrap = document.createElement("div"); wrap.id = "aiWrap";
     main.parentNode.insertBefore(wrap, main); wrap.appendChild(main);
@@ -3041,15 +3244,18 @@ var PUB = {
       '<button data-m="all" title="' + L("听到提问就自动回答", "Answer every question automatically") + '">' + L("全部", "Auto") + '</button></div>' +
       '<span class="aiAct" id="aiAct"></span><button class="aiAsk" id="aiAsk" title="' + L("马上回答最近的提问（快捷键 A）", "Answer the latest question now (key: A)") + '">' + L("答", "Answer") + '</button>' +
       '<button class="aiIcon" id="aiCfgBtn" title="' + L("AI 设置", "AI settings") + '" aria-label="settings">⚙︎</button><button class="aiIcon aiFoldBtn" id="aiFold" aria-label="fold">▾</button></div>' +
-      '<div class="aiCards" id="aiCards"><div class="aiEmpty" id="aiEmpty"></div></div><div class="aiFoot" id="aiFoot"></div>';
+      '<div class="aiCards" id="aiCards"><div class="aiEmpty" id="aiEmpty"></div></div>' +
+      '<div class="aiHist" id="aiHist" hidden><div class="aiChips" id="aiChips" role="tablist" aria-label="recent questions"></div><button class="aiChip aiNewer" id="aiNewer" hidden></button><span class="aiHm" id="aiHm"></span></div>' +
+      '<div class="aiFoot" id="aiFoot"></div>';
     wrap.appendChild(p);
     var dl = document.createElement("dialog"); dl.className = "aiDlg"; dl.id = "aiDlg"; dl.innerHTML = DLG(); document.body.appendChild(dl);
-    ORDER.forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = L(MODELS[id].label, MODELS[id].en); $("aiModel").appendChild(o); });
-    if ($("aiDeep")) {
-      ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"].forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = MODELS[id].name; $("aiDeep").appendChild(o); });
-      ["xhigh", "max", "high", "medium"].forEach(function(e){ var o = document.createElement("option"); o.value = e; o.textContent = EFFORTS[e] + " effort"; $("aiEffort").appendChild(o); });
-    }
+    fillPicker($("aiModel")); if ($("aiDeep")) fillPicker($("aiDeep"));
     E = { panel: p, cards: $("aiCards"), empty: $("aiEmpty"), act: $("aiAct"), ask: $("aiAsk"), seg: $("aiSeg"), foot: $("aiFoot"), dlg: dl };
+    if (TOPL) {
+      E.hist = $("aiHist"); E.chips = $("aiChips"); E.hm = $("aiHm"); E.newer = $("aiNewer");
+      E.newer.onclick = function(){ var cs = all_(); view.follow = true; select(cs[cs.length - 1], false); };
+      E.live = picker("live"); E.ask.parentNode.insertBefore(E.live, E.ask.nextSibling);   // 底栏：现场模型一眼能看到、能换
+    }
     E.seg.addEventListener("click", function(e){ var b = e.target.closest ? e.target.closest("button[data-m]") : null; if (b) setMode(b.dataset.m); });
     setMode(mode);
     E.ask.onclick = function(){ PUB.ask(); };
@@ -3060,7 +3266,7 @@ var PUB = {
       var x = e.target.closest ? e.target.closest(".aiX") : null; if (!x) return;
       var card = x.closest(".aiCard");
       if (busy && busy.card.el === card) stopJob(busy, "dismiss");
-      card.remove(); empty();
+      drop(card);
     });
     if (H.before || H.after) {                           // 顶栏上的「AI」开关
       var b = document.createElement("button"); b.className = "aiTgl"; b.id = "aiToggle"; b.textContent = "AI"; b.title = "显示/隐藏 AI 答题";
@@ -3086,6 +3292,7 @@ var PUB = {
       var t = e.target && e.target.tagName;
       if (/INPUT|TEXTAREA|SELECT/.test(t || "") || (e.target && e.target.isContentEditable) || document.querySelector("dialog[open]")) return;
       if (e.key === "a" || e.key === "A") { e.preventDefault(); PUB.ask(); }
+      else if (TOPL && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1); }
     });
   },
   panel: function(){ return E.panel; },
@@ -3124,7 +3331,7 @@ var PUB = {
     var msgs = [{ role: "user", content: ctx }, { role: "assistant", content: "Got it." }];
     history.forEach(function(x){ msgs.push({ role: x.role, content: x.text }); });
     msgs.push({ role: "user", content: "Live transcript so far (most recent last):\n" + (recent.join("\n") || "(nothing yet)") + "\n\n---\nTime now: " + now() + "\nNolan types: " + question });
-    var body = { model: m, max_tokens: P.max || (m === "claude-opus-5-5" ? 4000 : 1500), stream: true, system: opts.deep ? CHAT_DEEP : CHAT_SYSTEM, messages: msgs };
+    var body = { model: m, max_tokens: P.max || (m === "claude-opus-5-5" ? 4000 : 1500), stream: true, system: chatSys(opts.deep), messages: msgs };
     Object.keys(P.extra).forEach(function(k2){ body[k2] = P.extra[k2]; });
     return fetch(ENDPOINT, { method: "POST", headers: headers(key()), body: JSON.stringify(body), signal: signal, cache: "no-store" })
       .then(function(r){
@@ -3143,17 +3350,23 @@ var PUB = {
   reset: function(clearCards){
     lines = []; base = 0; seen = {}; nSeen = 0; queued = null; answered = []; batch = null;
     if (busy) stopJob(busy, "dismiss");
-    if (clearCards && E.cards) { Array.prototype.forEach.call(E.cards.querySelectorAll(".aiCard"), function(c){ c.remove(); }); empty(); }
+    if (clearCards && E.cards) { Array.prototype.forEach.call(E.cards.querySelectorAll(".aiCard"), function(c){ c.remove(); }); view.sel = null; view.follow = true; chips(); empty(); }
   },
   names: names,
   setHostKey: function(k){ H.key = String(k || ""); activity(); empty(); },
   exportCfg: function(){ return cfg.key ? { a: cfg.key, m: model(), n: cfg.names || "" } : null; },
   importCfg: function(o){
     if (!o || !o.a) return;
-    cfg = { key: o.a, model: MODELS[o.m] ? o.m : ORDER[0], names: o.n || cfg.names || "", about: cfg.about || "" };
-    LS.set("aiCfg", cfg);
+    Object.assign(cfg, { key: o.a, model: MODELS[o.m] ? o.m : ORDER[0], names: o.n || cfg.names || "" });
+    LS.set("aiCfg", cfg); syncPickers();
   },
   open: function(){ openDlg(); },
+  picker: picker,                                      // 模型选择框（live / deep），各处同步
+  rules: function(){ return String(cfg.rules || ""); },
+  setRules: function(t){ cfg.rules = String(t || "").trim(); LS.set("aiCfg", cfg); },
+  addRule: function(t){ t = String(t || "").trim(); if (!t) return; var r = String(cfg.rules || "").trim(); cfg.rules = (r ? r + "\n" : "") + "- " + t.replace(/^[-•]\s*/, ""); LS.set("aiCfg", cfg); },
+  rulesText: function(){ return rulesText(); },
+  style: function(){ return STYLE; },
   onCfg: null
 };
 return PUB;
